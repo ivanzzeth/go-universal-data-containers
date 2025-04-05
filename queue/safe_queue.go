@@ -41,12 +41,24 @@ func (q *SafeQueue) MaxSize() int {
 
 func (q *SafeQueue) Enqueue(data []byte) error {
 	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
-	return q.queue.Enqueue(data)
+	err := q.queue.Enqueue(data)
+	if err != nil {
+		metrics.MetricQueueEnqueueErrorTotal.WithLabelValues(q.Name()).Inc()
+		return err
+	}
+
+	return nil
 }
 
 func (q *SafeQueue) Dequeue() ([]byte, error) {
 	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
-	return q.queue.Dequeue()
+	data, err := q.queue.Dequeue()
+	if err != nil {
+		metrics.MetricQueueDequeueErrorTotal.WithLabelValues(q.Name()).Inc()
+		return nil, err
+	}
+
+	return data, nil
 }
 
 func (q *SafeQueue) Subscribe(cb Handler) {

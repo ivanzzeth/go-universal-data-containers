@@ -17,10 +17,22 @@ var (
 		Help:      "Total number of actual data pushed to queue.",
 	}, []string{queueName})
 
+	MetricQueueEnqueueErrorTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespaceQueue,
+		Name:      "queue_enqueue_error_total",
+		Help:      "Total number of actual data pushed to queue failed.",
+	}, []string{queueName})
+
 	MetricQueueDequeueTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: namespaceQueue,
 		Name:      "queue_dequeue_total",
 		Help:      "Total number of actual data poped from queue.",
+	}, []string{queueName})
+
+	MetricQueueDequeueErrorTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespaceQueue,
+		Name:      "queue_dequeue_error_total",
+		Help:      "Total number of actual data poped from queue failed.",
 	}, []string{queueName})
 
 	MetricQueueHandleErrorTotal = promauto.NewCounterVec(prometheus.CounterOpts{

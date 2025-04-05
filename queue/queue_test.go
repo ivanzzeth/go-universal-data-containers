@@ -148,6 +148,13 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 	if data != nil {
 		t.Fatal("expected", nil, "got", data)
 	}
+
+	q.Close()
+
+	err = q.Enqueue([]byte{byte(0)})
+	if !errors.Is(err, ErrQueueClosed) {
+		t.Fatal("expected", ErrQueueClosed, "got", err)
+	}
 }
 
 func SpecTestQueueConcurrent(t *testing.T, q Queue) {
@@ -187,13 +194,23 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 		}
 	}
 
-	timeout := time.NewTimer(5 * time.Second)
+	timeout := time.NewTimer(2 * time.Second)
 	for {
+		time.Sleep(10 * time.Millisecond)
 		select {
 		case <-timeout.C:
 			t.Fatalf("timeout, length=%v, maxSize=%v", len(datas), maxSize)
 		default:
 			if len(datas) >= maxSize {
+				sort.Slice(datas, func(i, j int) bool {
+					return bytes.Compare(datas[i], datas[j]) < 0
+				})
+
+				for i := 0; i < maxSize; i++ {
+					if !bytes.Equal(datas[i], []byte{byte(i)}) {
+						t.Fatal("expected", []byte{byte(i)}, "got", datas[i])
+					}
+				}
 				return
 			}
 		}

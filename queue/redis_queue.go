@@ -137,6 +137,8 @@ func (q *RedisQueue) Enqueue(data []byte) error {
 		return err
 	}
 
+	q.m.Lock()
+	defer q.m.Unlock()
 	return q.q.PublishBytes(data)
 }
 
@@ -150,10 +152,10 @@ func (q *RedisQueue) Dequeue() ([]byte, error) {
 		return nil, err
 	}
 
-	bytes := [][]byte{}
-	for _, d := range data {
-		bytes = append(bytes, []byte(d))
-	}
+	// bytes := [][]byte{}
+	// for _, d := range data {
+	// 	bytes = append(bytes, []byte(d))
+	// }
 	// fmt.Printf("Dequeue %v\n", bytes)
 
 	if len(data) != 1 {
