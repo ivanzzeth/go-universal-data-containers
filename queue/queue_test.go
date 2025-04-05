@@ -17,27 +17,27 @@ func init() {
 }
 
 func TestMemoryQueueSequencial(t *testing.T) {
-	q := NewMemoryQueue(5, DefaultPollInterval)
+	q := NewMemoryQueue("", 5, DefaultPollInterval)
 	SpecTestQueueSequencial(t, q)
 }
 
 func TestSafeQueueSequencial(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue(5, DefaultPollInterval))
+	q := NewSafeQueue(NewMemoryQueue("", 5, DefaultPollInterval))
 	SpecTestQueueSequencial(t, q)
 }
 
 func TestQueueConcurrent(t *testing.T) {
-	q := NewMemoryQueue(5, DefaultPollInterval)
+	q := NewMemoryQueue("", 5, DefaultPollInterval)
 	SpecTestQueueConcurrent(t, q)
 }
 
 func TestSafeQueueConcurrent(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue(5, DefaultPollInterval))
+	q := NewSafeQueue(NewMemoryQueue("", 5, DefaultPollInterval))
 	SpecTestQueueConcurrent(t, q)
 }
 
 func TestQueueSubscribe(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue(5, DefaultPollInterval))
+	q := NewSafeQueue(NewMemoryQueue("", 5, DefaultPollInterval))
 	SpecTestQueueSubscribe(t, q)
 }
 

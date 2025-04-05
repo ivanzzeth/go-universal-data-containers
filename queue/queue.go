@@ -36,6 +36,8 @@ type Factory interface {
 type Queue interface {
 	Kind() Kind
 
+	Name() string
+
 	// Reports max size of queue
 	MaxSize() int
 

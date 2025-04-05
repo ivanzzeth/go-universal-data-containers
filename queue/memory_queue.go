@@ -26,7 +26,7 @@ func (f *MemoryFactory) GetOrCreate(name string, maxSize int) Queue {
 	f.m.Lock()
 	defer f.m.Unlock()
 	if _, ok := f.table[name]; !ok {
-		f.table[name] = NewSafeQueue(NewMemoryQueue(maxSize, DefaultPollInterval))
+		f.table[name] = NewSafeQueue(NewMemoryQueue(name, maxSize, DefaultPollInterval))
 	}
 
 	return f.table[name]
@@ -34,6 +34,7 @@ func (f *MemoryFactory) GetOrCreate(name string, maxSize int) Queue {
 
 type MemoryQueue struct {
 	m            sync.Mutex
+	name         string
 	maxSize      int
 	pollInterval time.Duration
 	queue        [][]byte
@@ -41,8 +42,9 @@ type MemoryQueue struct {
 	exitChannel  chan int
 }
 
-func NewMemoryQueue(maxSize int, pollInterval time.Duration) *MemoryQueue {
+func NewMemoryQueue(name string, maxSize int, pollInterval time.Duration) *MemoryQueue {
 	q := &MemoryQueue{
+		name:         name,
 		maxSize:      maxSize,
 		pollInterval: pollInterval,
 		exitChannel:  make(chan int),
@@ -59,6 +61,10 @@ func (q *MemoryQueue) Close() {
 
 func (q *MemoryQueue) Kind() Kind {
 	return KindFIFO
+}
+
+func (q *MemoryQueue) Name() string {
+	return q.name
 }
 
 func (q *MemoryQueue) MaxSize() int {
