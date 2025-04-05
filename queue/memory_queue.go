@@ -22,7 +22,7 @@ func NewMemoryFactory() *MemoryFactory {
 	}
 }
 
-func (f *MemoryFactory) GetOrCreate(name string, options ...func(*QueueOptions)) Queue {
+func (f *MemoryFactory) GetOrCreate(name string, options ...func(*QueueOptions)) (Queue, error) {
 	ops := DefaultOptions
 	for _, op := range options {
 		op(&ops)
@@ -31,10 +31,14 @@ func (f *MemoryFactory) GetOrCreate(name string, options ...func(*QueueOptions))
 	f.m.Lock()
 	defer f.m.Unlock()
 	if _, ok := f.table[name]; !ok {
-		f.table[name] = NewSafeQueue(NewMemoryQueue(name, &ops))
+		q, err := NewSafeQueue(NewMemoryQueue(name, &ops))
+		if err != nil {
+			return nil, err
+		}
+		f.table[name] = q
 	}
 
-	return f.table[name]
+	return f.table[name], nil
 }
 
 type MemoryQueue struct {

@@ -17,10 +17,10 @@ type SafeQueue struct {
 	queue Queue
 }
 
-func NewSafeQueue(queue Queue) *SafeQueue {
+func NewSafeQueue(queue Queue) (*SafeQueue, error) {
 	return &SafeQueue{
 		queue: queue,
-	}
+	}, nil
 }
 
 func (q *SafeQueue) Kind() Kind {
@@ -29,6 +29,10 @@ func (q *SafeQueue) Kind() Kind {
 
 func (q *SafeQueue) Name() string {
 	return q.queue.Name()
+}
+
+func (q *SafeQueue) Close() {
+	q.queue.Close()
 }
 
 func (q *SafeQueue) MaxSize() int {
@@ -64,15 +68,18 @@ func (q *SafeQueue) Subscribe(cb Handler) {
 	})
 }
 
-func (q *SafeQueue) handle(b []byte, cb Handler) error {
+func (q *SafeQueue) handle(b []byte, cb Handler) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
+			err = ErrQueueRecovered
 			// log.Error("Recovered from subscribe queue panic", "err", r)
 			metrics.MetricQueueRecoverTotal.WithLabelValues(q.Name()).Inc()
 
 			if queue, ok := q.queue.(RecoverableQueue); ok {
 				var recoverErr error
 				for i := 0; i < DefaultMaxRetries; i++ {
+					// fmt.Printf("Recover %v\n", b)
+
 					recoverErr = queue.Recover(b)
 					if recoverErr != nil {
 						time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
@@ -89,11 +96,12 @@ func (q *SafeQueue) handle(b []byte, cb Handler) error {
 		}
 	}()
 
-	err := cb(b)
+	err = cb(b)
 	if err != nil {
 		if q.IsRecoverable() {
 			var recoverErr error
 			for i := 0; i < DefaultMaxRetries; i++ {
+				// fmt.Printf("Recover2 %v\n", b)
 				recoverErr = q.Recover(b)
 				if recoverErr != nil {
 					time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)

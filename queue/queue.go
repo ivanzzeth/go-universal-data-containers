@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	DefaultPollInterval = 20 * time.Millisecond
+	DefaultPollInterval = 10 * time.Millisecond
 	DefaultMaxRetries   = 10
 	DefaultOptions      = QueueOptions{
 		MaxSize:      UnlimitedMaxSize,
@@ -30,15 +30,16 @@ const (
 
 // Errors
 var (
-	ErrQueueClosed = errors.New("queue is closed")
-	ErrQueueFull   = errors.New("queue is full")
-	ErrQueueEmpty  = errors.New("queue is empty")
+	ErrQueueClosed    = errors.New("queue is closed")
+	ErrQueueFull      = errors.New("queue is full")
+	ErrQueueEmpty     = errors.New("queue is empty")
+	ErrQueueRecovered = errors.New("queue recovered")
 )
 
 type Factory interface {
 	// Create a new queue if name does not exist
 	// If name already exists, return the existing queue
-	GetOrCreate(name string, options ...func(*QueueOptions)) Queue
+	GetOrCreate(name string, options ...func(*QueueOptions)) (Queue, error)
 }
 
 type QueueOptions struct {
@@ -69,11 +70,17 @@ type Queue interface {
 	// Subscribe queue with message confirmation.
 	// Once handler returns error, it'll automatically put message back to queue using `Recover` mechanism internally.
 	Subscribe(h Handler)
+
+	Close()
 }
 
 type RecoverableQueue interface {
 	Queue
 
+	Recoverable
+}
+
+type Recoverable interface {
 	// Recover providers the ability to put message back to queue when handler returns error or encounters panic.
 	// Message will be located at:
 	// 1. the end of queue if queue is standard queue or

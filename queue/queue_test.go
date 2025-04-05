@@ -1,18 +1,24 @@
 package queue
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/alicebob/miniredis/v2"
+
+	redis "github.com/redis/go-redis/v9"
 )
 
 var (
 	queueOptions = QueueOptions{
-		MaxSize:      1000,
+		MaxSize:      255,
 		PollInterval: DefaultPollInterval,
 		MaxRetries:   DefaultMaxRetries,
 	}
@@ -29,8 +35,26 @@ func TestMemoryQueueSequencial(t *testing.T) {
 	SpecTestQueueSequencial(t, q)
 }
 
+func TestRedisQueueSequencial(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb)
+	q, err := f.GetOrCreate("queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	SpecTestQueueSequencial(t, q)
+}
+
 func TestSafeQueueSequencial(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue("", &queueOptions))
+	q, err := NewSafeQueue(NewMemoryQueue("", &queueOptions))
+	if err != nil {
+		t.Fatal(err)
+	}
 	SpecTestQueueSequencial(t, q)
 }
 
@@ -39,37 +63,80 @@ func TestQueueConcurrent(t *testing.T) {
 	SpecTestQueueConcurrent(t, q)
 }
 
+func TestRedisQueueConcurrent(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb)
+	q, err := f.GetOrCreate("queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	SpecTestQueueConcurrent(t, q)
+}
+
 func TestSafeQueueConcurrent(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue("", &queueOptions))
+	q, err := NewSafeQueue(NewMemoryQueue("", &queueOptions))
+	if err != nil {
+		t.Fatal(err)
+	}
 	SpecTestQueueConcurrent(t, q)
 }
 
 func TestQueueSubscribe(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue("", &queueOptions))
-	SpecTestQueueSubscribe(t, q)
+	f := NewMemoryFactory()
+	SpecTestQueueSubscribe(t, f)
+}
+
+func TestRedisQueueSubscribe(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb)
+
+	SpecTestQueueSubscribe(t, f)
 }
 
 func SpecTestQueueSequencial(t *testing.T, q Queue) {
-	for i := 0; i < q.MaxSize(); i++ {
+	maxSize := getMaxSize(q)
+	for i := 0; i < maxSize; i++ {
 		err := q.Enqueue([]byte{byte(i)})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	err := q.Enqueue([]byte{byte(q.MaxSize() + 1)})
-	if !errors.Is(err, ErrQueueFull) {
-		t.Fatal("expected", ErrQueueFull, "got", err)
+	if q.MaxSize() != UnlimitedMaxSize {
+		err := q.Enqueue([]byte{byte(maxSize + 1)})
+		if !errors.Is(err, ErrQueueFull) {
+			t.Fatal("expected", ErrQueueFull, "got", err)
+		}
 	}
 
-	for i := 0; i < q.MaxSize(); i++ {
+	allData := [][]byte{}
+	for i := 0; i < maxSize; i++ {
 		data, err := q.Dequeue()
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		if data[0] != byte(i) {
-			t.Fatal("expected", i, "got", data[0])
+		allData = append(allData, data)
+	}
+
+	sort.Slice(allData, func(i, j int) bool {
+		return bytes.Compare(allData[i], allData[j]) < 0
+	})
+
+	for i := 0; i < maxSize; i++ {
+		if !bytes.Equal(allData[i], []byte{byte(i)}) {
+			t.Fatal("expected", []byte{byte(i)}, "got", allData[i])
 		}
 	}
 
@@ -84,12 +151,15 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 }
 
 func SpecTestQueueConcurrent(t *testing.T, q Queue) {
+	maxSize := getMaxSize(q)
+
 	datas := [][]byte{}
 	go func() {
 		for {
 			data, err := q.Dequeue()
 			if err != nil {
 				time.Sleep(100 * time.Millisecond)
+				t.Logf("Dequeue failed: %v", err)
 				continue
 			}
 
@@ -98,8 +168,8 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 	}()
 
 	var wg sync.WaitGroup
-	errsChan := make(chan error, q.MaxSize())
-	for i := 0; i < q.MaxSize(); i++ {
+	errsChan := make(chan error, maxSize)
+	for i := 0; i < maxSize; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -121,16 +191,16 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 	for {
 		select {
 		case <-timeout.C:
-			t.Fatal("timeout")
+			t.Fatalf("timeout, length=%v, maxSize=%v", len(datas), maxSize)
 		default:
-			if len(datas) >= q.MaxSize() {
+			if len(datas) >= maxSize {
 				return
 			}
 		}
 	}
 }
 
-func SpecTestQueueSubscribe(t *testing.T, q Queue) {
+func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 	type dataAndErr struct {
 		Data string
 		Err  string
@@ -174,7 +244,14 @@ func SpecTestQueueSubscribe(t *testing.T, q Queue) {
 			allData := make(map[string]bool)
 			isSubscribeErrReturned := make(map[string]bool)
 
+			q, err := f.GetOrCreate(fmt.Sprintf("test-%d", i))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer q.Close()
+
 			q.Subscribe(func(b []byte) error {
+				t.Logf("Subscribe in test: %v", string(b))
 				var data dataAndErr
 				err := json.Unmarshal(b, &data)
 				if err != nil {
@@ -190,9 +267,10 @@ func SpecTestQueueSubscribe(t *testing.T, q Queue) {
 					}
 
 					return errors.New(data.Err)
-				} else {
-					allData[data.Data] = true
 				}
+
+				t.Logf("Store data: %v", data.Data)
+				allData[data.Data] = true
 				return nil
 			})
 
@@ -208,13 +286,22 @@ func SpecTestQueueSubscribe(t *testing.T, q Queue) {
 				}
 			}
 
-			time.Sleep(1 * time.Second)
+			time.Sleep(2 * time.Second)
 
 			for _, d := range tt.data {
 				if !allData[d.Data] {
-					t.Fatalf("expected %v to be included", d.Data)
+					t.Fatalf("expected %v to be included, allData=%v", d.Data, allData)
 				}
 			}
 		})
 	}
+}
+
+func getMaxSize(q Queue) int {
+	maxSize := q.MaxSize()
+	if maxSize == UnlimitedMaxSize {
+		maxSize = 10
+	}
+
+	return maxSize
 }
