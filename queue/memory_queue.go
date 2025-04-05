@@ -22,32 +22,30 @@ func NewMemoryFactory() *MemoryFactory {
 	}
 }
 
-func (f *MemoryFactory) GetOrCreate(name string, maxSize int) Queue {
+func (f *MemoryFactory) GetOrCreate(name string, options ...func(*QueueOptions)) Queue {
+	ops := DefaultOptions
+	for _, op := range options {
+		op(&ops)
+	}
+
 	f.m.Lock()
 	defer f.m.Unlock()
 	if _, ok := f.table[name]; !ok {
-		f.table[name] = NewSafeQueue(NewMemoryQueue(name, maxSize, DefaultPollInterval))
+		f.table[name] = NewSafeQueue(NewMemoryQueue(name, &ops))
 	}
 
 	return f.table[name]
 }
 
 type MemoryQueue struct {
-	m            sync.Mutex
-	name         string
-	maxSize      int
-	pollInterval time.Duration
-	queue        [][]byte
-	cb           Handler
-	exitChannel  chan int
+	*BaseQueue
+	queue [][]byte
+	cb    Handler
 }
 
-func NewMemoryQueue(name string, maxSize int, pollInterval time.Duration) *MemoryQueue {
+func NewMemoryQueue(name string, options *QueueOptions) *MemoryQueue {
 	q := &MemoryQueue{
-		name:         name,
-		maxSize:      maxSize,
-		pollInterval: pollInterval,
-		exitChannel:  make(chan int),
+		BaseQueue: NewBaseQueue(name, options),
 	}
 
 	go q.run()
@@ -67,21 +65,16 @@ func (q *MemoryQueue) Name() string {
 	return q.name
 }
 
-func (q *MemoryQueue) MaxSize() int {
-	return q.maxSize
-}
-
 func (q *MemoryQueue) Enqueue(data []byte) error {
+	err := q.BaseQueue.Enqueue(data)
+	if err != nil {
+		return err
+	}
+
 	q.m.Lock()
 	defer q.m.Unlock()
 
-	select {
-	case <-q.exitChannel:
-		return ErrQueueClosed
-	default:
-	}
-
-	if q.maxSize > 0 && len(q.queue) >= q.maxSize {
+	if q.MaxSize() > 0 && len(q.queue) >= q.MaxSize() {
 		return ErrQueueFull
 	}
 
@@ -119,7 +112,7 @@ Loop:
 
 			msgBytes, err := q.Dequeue()
 			if err != nil {
-				time.Sleep(q.pollInterval)
+				time.Sleep(q.options.PollInterval)
 				continue Loop
 			}
 

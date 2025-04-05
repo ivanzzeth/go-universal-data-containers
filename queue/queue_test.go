@@ -10,6 +10,14 @@ import (
 	"time"
 )
 
+var (
+	queueOptions = QueueOptions{
+		MaxSize:      1000,
+		PollInterval: DefaultPollInterval,
+		MaxRetries:   DefaultMaxRetries,
+	}
+)
+
 func init() {
 	// handler := log.NewTerminalHandler(os.Stdout, true)
 	// logger := log.NewLogger(handler)
@@ -17,27 +25,27 @@ func init() {
 }
 
 func TestMemoryQueueSequencial(t *testing.T) {
-	q := NewMemoryQueue("", 5, DefaultPollInterval)
+	q := NewMemoryQueue("", &queueOptions)
 	SpecTestQueueSequencial(t, q)
 }
 
 func TestSafeQueueSequencial(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue("", 5, DefaultPollInterval))
+	q := NewSafeQueue(NewMemoryQueue("", &queueOptions))
 	SpecTestQueueSequencial(t, q)
 }
 
 func TestQueueConcurrent(t *testing.T) {
-	q := NewMemoryQueue("", 5, DefaultPollInterval)
+	q := NewMemoryQueue("", &queueOptions)
 	SpecTestQueueConcurrent(t, q)
 }
 
 func TestSafeQueueConcurrent(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue("", 5, DefaultPollInterval))
+	q := NewSafeQueue(NewMemoryQueue("", &queueOptions))
 	SpecTestQueueConcurrent(t, q)
 }
 
 func TestQueueSubscribe(t *testing.T) {
-	q := NewSafeQueue(NewMemoryQueue("", 5, DefaultPollInterval))
+	q := NewSafeQueue(NewMemoryQueue("", &queueOptions))
 	SpecTestQueueSubscribe(t, q)
 }
 

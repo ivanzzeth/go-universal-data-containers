@@ -8,6 +8,15 @@ import (
 var (
 	DefaultPollInterval = 20 * time.Millisecond
 	DefaultMaxRetries   = 10
+	DefaultOptions      = QueueOptions{
+		MaxSize:      UnlimitedMaxSize,
+		PollInterval: DefaultPollInterval,
+		MaxRetries:   DefaultMaxRetries,
+	}
+)
+
+const (
+	UnlimitedMaxSize = -1
 )
 
 type Handler func([]byte) error
@@ -29,7 +38,13 @@ var (
 type Factory interface {
 	// Create a new queue if name does not exist
 	// If name already exists, return the existing queue
-	GetOrCreate(name string, maxSize int) Queue
+	GetOrCreate(name string, options ...func(*QueueOptions)) Queue
+}
+
+type QueueOptions struct {
+	MaxSize      int
+	PollInterval time.Duration
+	MaxRetries   int
 }
 
 // The interface of queue
@@ -40,6 +55,7 @@ type Queue interface {
 	Name() string
 
 	// Reports max size of queue
+	// -1 for unlimited
 	MaxSize() int
 
 	// Push data to end of queue
