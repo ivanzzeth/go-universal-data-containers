@@ -173,43 +173,46 @@ func (q *RedisQueue) Subscribe(cb Handler) {
 	if q.cb == nil {
 		q.cb = cb
 
-		q.q.AddConsumerFunc("", func(delivery rmq.Delivery) {
-			var err error
-			data := delivery.Payload()
+		for i := 0; i < q.options.ConsumerCount; i++ {
+			consumerName := fmt.Sprintf("%v-consumer-%v", q.Name(), i)
+			q.q.AddConsumerFunc(consumerName, func(delivery rmq.Delivery) {
+				var err error
+				data := delivery.Payload()
 
-			defer func() {
-				if err != nil {
-					// fmt.Printf("Reject %v reason %v\n", data, err)
+				defer func() {
+					if err != nil {
+						// fmt.Printf("Reject %v reason %v\n", data, err)
 
-					for i := 0; i < q.options.MaxRetries; i++ {
-						if rejectErr := delivery.Reject(); rejectErr == nil {
-							break
-						} else {
-							// TODO: logging
-							fmt.Printf("failed to reject delivery: %v\n", rejectErr)
-							time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
+						for i := 0; i < q.options.MaxRetries; i++ {
+							if rejectErr := delivery.Reject(); rejectErr == nil {
+								break
+							} else {
+								// TODO: logging
+								fmt.Printf("failed to reject delivery: %v\n", rejectErr)
+								time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
+							}
 						}
 					}
-				}
-			}()
+				}()
 
-			// fmt.Printf("Subscribe %v\n", data)
-			if data != redisQueueTestMsg {
-				// fmt.Printf("Handle %v\n", data)
-				err = cb([]byte(data))
+				// fmt.Printf("Subscribe %v\n", data)
+				if data != redisQueueTestMsg {
+					// fmt.Printf("Handle %v\n", data)
+					err = cb([]byte(data))
+					if err != nil {
+						// fmt.Printf("Handle failed %v: %v\n", data, err)
+						return
+					}
+				}
+
+				// fmt.Printf("Ack %v\n", data)
+
+				err = delivery.Ack()
 				if err != nil {
-					// fmt.Printf("Handle failed %v: %v\n", data, err)
 					return
 				}
-			}
-
-			// fmt.Printf("Ack %v\n", data)
-
-			err = delivery.Ack()
-			if err != nil {
-				return
-			}
-		})
+			})
+		}
 	}
 }
 

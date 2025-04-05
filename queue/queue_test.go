@@ -21,6 +21,8 @@ var (
 		MaxSize:      255,
 		PollInterval: DefaultPollInterval,
 		MaxRetries:   DefaultMaxRetries,
+
+		ConsumerCount: 3,
 	}
 )
 
