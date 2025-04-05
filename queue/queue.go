@@ -7,6 +7,7 @@ import (
 
 var (
 	DefaultPollInterval = 20 * time.Millisecond
+	DefaultMaxRetries   = 10
 )
 
 type Handler func([]byte) error

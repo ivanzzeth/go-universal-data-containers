@@ -72,7 +72,7 @@ func (q *SafeQueue) handle(b []byte, cb Handler) error {
 
 			if queue, ok := q.queue.(RecoverableQueue); ok {
 				var recoverErr error
-				for i := 0; i < 10; i++ {
+				for i := 0; i < DefaultMaxRetries; i++ {
 					recoverErr = queue.Recover(b)
 					if recoverErr != nil {
 						time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
@@ -93,7 +93,7 @@ func (q *SafeQueue) handle(b []byte, cb Handler) error {
 	if err != nil {
 		if q.IsRecoverable() {
 			var recoverErr error
-			for i := 0; i < 10; i++ {
+			for i := 0; i < DefaultMaxRetries; i++ {
 				recoverErr = q.Recover(b)
 				if recoverErr != nil {
 					time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
