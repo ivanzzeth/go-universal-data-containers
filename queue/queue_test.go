@@ -146,6 +146,38 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 	}
 }
 
+func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory) {
+	maxFailures := 3
+	q, err := f.GetOrCreate("queue", WithMaxHandleFailures(maxFailures))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var mutex sync.Mutex
+	currFailures := 0
+	q.Subscribe(func(msg Message) error {
+		if currFailures < maxFailures {
+			mutex.Lock()
+			defer mutex.Unlock()
+			currFailures++
+			return errors.New("test max failures")
+		}
+
+		return nil
+	})
+
+	err = q.Enqueue([]byte(fmt.Sprintf("data")))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(1 * time.Second)
+
+	if currFailures != maxFailures {
+		t.Fatal("expected", maxFailures, "got", currFailures)
+	}
+}
+
 func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 	type dataAndErr struct {
 		Data string
@@ -199,7 +231,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 			q.Subscribe(func(msg Message) error {
 				b := msg.Data()
 
-				t.Logf("Subscribe in test: %v", string(b))
+				t.Logf("Subscribe in test: %v", msg)
 				var data dataAndErr
 				err := json.Unmarshal(b, &data)
 				if err != nil {

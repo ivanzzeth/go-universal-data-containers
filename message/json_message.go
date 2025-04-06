@@ -67,3 +67,8 @@ func (m *JsonMessage) Unpack(b []byte) error {
 
 	return nil
 }
+
+func (m *JsonMessage) String() string {
+	packed, _ := m.Pack()
+	return string(packed)
+}

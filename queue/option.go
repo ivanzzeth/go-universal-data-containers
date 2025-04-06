@@ -37,6 +37,7 @@ type Config struct {
 
 	PollInterval time.Duration
 
+	// Used for internal retrying, not for message retrying
 	MaxRetries int
 
 	// Specify how many consumers are consuming the queue using `Subscribe`.
@@ -53,6 +54,12 @@ type Config struct {
 func WithMaxSize(maxSize int) func(*Config) {
 	return func(o *Config) {
 		o.MaxSize = maxSize
+	}
+}
+
+func WithMaxHandleFailures(maxHandleFailures int) func(*Config) {
+	return func(o *Config) {
+		o.MaxHandleFailures = maxHandleFailures
 	}
 }
 

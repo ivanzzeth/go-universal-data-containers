@@ -11,5 +11,5 @@ var (
 )
 
 func GenerateRandomID() ([]byte, error) {
-	return []byte(fmt.Sprintf("%d", rand.Intn(math.MaxInt))), nil
+	return []byte(fmt.Sprintf(`%d`, rand.Intn(math.MaxInt))), nil
 }

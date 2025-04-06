@@ -38,6 +38,17 @@ func TestRedisQueueConcurrent(t *testing.T) {
 	SpecTestQueueConcurrent(t, q)
 }
 
+func TestRedisQueueSubscribeHandleReachedMaxFailures(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb)
+	SpecTestQueueSubscribeHandleReachedMaxFailures(t, f)
+}
+
 func TestRedisQueueSubscribe(t *testing.T) {
 	s := miniredis.RunT(t)
 

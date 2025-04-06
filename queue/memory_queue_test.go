@@ -12,6 +12,11 @@ func TestMemoryQueueConcurrent(t *testing.T) {
 	SpecTestQueueConcurrent(t, q)
 }
 
+func TestMemoryQueueSubscribeHandleReachedMaxFailures(t *testing.T) {
+	f := NewMemoryFactory()
+	SpecTestQueueSubscribeHandleReachedMaxFailures(t, f)
+}
+
 func TestMemoryQueueSubscribe(t *testing.T) {
 	f := NewMemoryFactory()
 	SpecTestQueueSubscribe(t, f)
