@@ -21,8 +21,8 @@ func TestOptions(t *testing.T) {
 
 	safeq := q.(*SimpleQueue)
 	instance := safeq.queue.(*MemoryQueue)
-	assert.Equal(t, 100, instance.options.MaxSize)
-	assert.Equal(t, 321*time.Second, instance.options.PollInterval)
-	assert.Equal(t, 123, instance.options.MaxRetries)
-	assert.Equal(t, 567, instance.options.ConsumerCount)
+	assert.Equal(t, 100, instance.config.MaxSize)
+	assert.Equal(t, 321*time.Second, instance.config.PollInterval)
+	assert.Equal(t, 123, instance.config.MaxRetries)
+	assert.Equal(t, 567, instance.config.ConsumerCount)
 }

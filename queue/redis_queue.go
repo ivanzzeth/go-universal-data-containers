@@ -3,7 +3,6 @@ package queue
 import (
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/adjust/rmq/v5"
@@ -90,32 +89,32 @@ func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQue
 				return
 			default:
 			}
-			// unackedReturned, err := queue.ReturnUnacked(10)
-			// if err != nil {
-			// 	// TODO: logging
-			// 	fmt.Printf("redis queue got err: %v\n", err)
-			// 	continue
-			// }
-
-			// if unackedReturned > 0 {
-			// 	// TODO: logging
-			// 	fmt.Printf("redis queue returned %d unacked messages\n", unackedReturned)
-			// }
-
-			rejectedReturned, err := queue.ReturnRejected(10)
+			unackedReturned, err := queue.ReturnUnacked(10)
 			if err != nil {
 				// TODO: logging
-				if !errors.Is(err, rmq.ErrorNotFound) {
-					// fmt.Printf("redis queue got err: %v\n", err)
-
-					continue
-				}
+				fmt.Printf("redis queue got err: %v\n", err)
+				continue
 			}
 
-			if rejectedReturned > 0 {
+			if unackedReturned > 0 {
 				// TODO: logging
-				// fmt.Printf("redis queue returned %d rejected messages\n", rejectedReturned)
+				fmt.Printf("redis queue returned %d unacked messages\n", unackedReturned)
 			}
+
+			// rejectedReturned, err := queue.ReturnRejected(10)
+			// if err != nil {
+			// 	// TODO: logging
+			// 	if !errors.Is(err, rmq.ErrorNotFound) {
+			// 		// fmt.Printf("redis queue got err: %v\n", err)
+
+			// 		continue
+			// 	}
+			// }
+
+			// if rejectedReturned > 0 {
+			// 	// TODO: logging
+			// 	// fmt.Printf("redis queue returned %d rejected messages\n", rejectedReturned)
+			// }
 		}
 	}()
 
@@ -131,18 +130,23 @@ func (q *RedisQueue) MaxSize() int {
 
 func (q *RedisQueue) Enqueue(data []byte) error {
 	// fmt.Printf("Enqueue %v\n", data)
-
-	err := q.BaseQueue.Enqueue(data)
+	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
 	}
 
 	q.m.Lock()
 	defer q.m.Unlock()
-	return q.q.PublishBytes(data)
+
+	packedData, err := q.Pack(data)
+	if err != nil {
+		return err
+	}
+
+	return q.q.PublishBytes(packedData)
 }
 
-func (q *RedisQueue) Dequeue() ([]byte, error) {
+func (q *RedisQueue) Dequeue() (Message, error) {
 	data, err := q.q.Drain(1)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -166,56 +170,84 @@ func (q *RedisQueue) Dequeue() ([]byte, error) {
 		return q.Dequeue()
 	}
 
-	return []byte(data[0]), nil
+	packedData := []byte(data[0])
+	msg, err := q.Unpack(packedData)
+	if err != nil {
+		// Consider the message is test message, just ignore it and dequeue again
+		// fmt.Printf("failed to unpack message: %v\n", err)
+		return q.Dequeue()
+	}
+
+	if msg.RetryCount() > q.config.MaxHandleFailures {
+		msg.RefreshRetryCount()
+	}
+
+	return msg, nil
 }
 
 func (q *RedisQueue) Subscribe(cb Handler) {
 	if q.cb == nil {
 		q.cb = cb
 
-		for i := 0; i < q.options.ConsumerCount; i++ {
+		for i := 0; i < q.config.ConsumerCount; i++ {
 			consumerName := fmt.Sprintf("%v-consumer-%v", q.Name(), i)
 			q.q.AddConsumerFunc(consumerName, func(delivery rmq.Delivery) {
-				var err error
+				var (
+					err error
+					msg Message
+				)
 				data := delivery.Payload()
-
-				defer func() {
-					if err != nil {
-						// fmt.Printf("Reject %v reason %v\n", data, err)
-
-						for i := 0; i < q.options.MaxRetries; i++ {
-							if rejectErr := delivery.Reject(); rejectErr == nil {
-								break
-							} else {
-								// TODO: logging
-								fmt.Printf("failed to reject delivery: %v\n", rejectErr)
-								time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
-							}
-						}
-					}
-				}()
-
 				// fmt.Printf("Subscribe %v\n", data)
 				if data != redisQueueTestMsg {
 					// fmt.Printf("Handle %v\n", data)
-					err = cb([]byte(data))
+					msg, err = q.Unpack([]byte(data))
 					if err != nil {
-						// fmt.Printf("Handle failed %v: %v\n", data, err)
+						// TODO: logging
 						return
 					}
 				}
 
-				// fmt.Printf("Ack %v\n", data)
+				defer func() {
+					for i := 0; i < q.config.MaxRetries; i++ {
+						err = delivery.Ack()
+						if err != nil {
+							// TODO: logging
+							continue
+						}
 
-				err = delivery.Ack()
-				if err != nil {
-					return
+						return
+					}
+				}()
+
+				if msg != nil {
+					err = cb(msg)
+					if err != nil {
+						// fmt.Printf("Handle failed %v: %v\n", data, err)
+						return
+					}
 				}
 			})
 		}
 	}
 }
 
-func (q *RedisQueue) Recover(b []byte) error {
+func (q *RedisQueue) Recover(msg Message) error {
+	if msg.RetryCount() >= q.config.MaxHandleFailures {
+		// Just ignore it for now
+		return nil
+	}
+	msg.AddRetryCount()
+	msg.RefreshUpdatedAt()
+
+	packedData, err := msg.Pack()
+	if err != nil {
+		return err
+	}
+
+	err = q.q.PublishBytes(packedData)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }

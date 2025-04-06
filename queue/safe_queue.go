@@ -59,6 +59,10 @@ func (q *SimpleQueue) MaxSize() int {
 	return q.queue.MaxSize()
 }
 
+func (q *SimpleQueue) MaxHandleFailures() int {
+	return q.queue.MaxHandleFailures()
+}
+
 func (q *SimpleQueue) Enqueue(data []byte) error {
 	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
 	err := q.queue.Enqueue(data)
@@ -70,7 +74,7 @@ func (q *SimpleQueue) Enqueue(data []byte) error {
 	return nil
 }
 
-func (q *SimpleQueue) Dequeue() ([]byte, error) {
+func (q *SimpleQueue) Dequeue() (Message, error) {
 	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
 	data, err := q.queue.Dequeue()
 	if err != nil {
@@ -82,13 +86,13 @@ func (q *SimpleQueue) Dequeue() ([]byte, error) {
 }
 
 func (q *SimpleQueue) Subscribe(cb Handler) {
-	q.queue.Subscribe(func(b []byte) error {
+	q.queue.Subscribe(func(msg Message) error {
 		startTime := time.Now()
 		defer func() {
 			metrics.MetricQueueHandleDuration.WithLabelValues(q.Name()).Observe(time.Since(startTime).Seconds())
 		}()
 
-		err := q.handle(b, cb)
+		err := q.handle(msg, cb)
 		if err != nil {
 			metrics.MetricQueueHandleErrorTotal.WithLabelValues(q.Name()).Inc()
 			return err
@@ -100,7 +104,7 @@ func (q *SimpleQueue) Subscribe(cb Handler) {
 	})
 }
 
-func (q *SimpleQueue) handle(b []byte, cb Handler) (err error) {
+func (q *SimpleQueue) handle(msg Message, cb Handler) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = ErrQueueRecovered
@@ -112,7 +116,7 @@ func (q *SimpleQueue) handle(b []byte, cb Handler) (err error) {
 				for i := 0; i < DefaultMaxRetries; i++ {
 					// fmt.Printf("Recover %v\n", b)
 
-					recoverErr = queue.Recover(b)
+					recoverErr = queue.Recover(msg)
 					if recoverErr != nil {
 						time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
 						continue
@@ -128,13 +132,13 @@ func (q *SimpleQueue) handle(b []byte, cb Handler) (err error) {
 		}
 	}()
 
-	err = cb(b)
+	err = cb(msg)
 	if err != nil {
 		if q.IsRecoverable() {
 			var recoverErr error
 			for i := 0; i < DefaultMaxRetries; i++ {
 				// fmt.Printf("Recover2 %v\n", b)
-				recoverErr = q.Recover(b)
+				recoverErr = q.Recover(msg)
 				if recoverErr != nil {
 					time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
 					continue
@@ -154,12 +158,12 @@ func (q *SimpleQueue) handle(b []byte, cb Handler) (err error) {
 	return nil
 }
 
-func (q *SimpleQueue) Recover(b []byte) error {
+func (q *SimpleQueue) Recover(msg Message) error {
 	// log.Debug("SafeQueue recover", "data", fmt.Sprintf("0x%x", b))
 	metrics.MetricQueueRecoverTotal.WithLabelValues(q.Name()).Inc()
 
 	if queue, ok := q.queue.(RecoverableQueue); ok {
-		err := queue.Recover(b)
+		err := queue.Recover(msg)
 		if err != nil {
 			metrics.MetricQueueRecoverErrorTotal.WithLabelValues(q.Name()).Inc()
 			return err

@@ -2,26 +2,13 @@ package queue
 
 import (
 	"errors"
-	"time"
-)
-
-var (
-	DefaultPollInterval = 10 * time.Millisecond
-	DefaultMaxRetries   = 10
-	DefaultOptions      = Config{
-		MaxSize:      UnlimitedMaxSize,
-		PollInterval: DefaultPollInterval,
-		MaxRetries:   DefaultMaxRetries,
-
-		ConsumerCount: 1,
-	}
 )
 
 const (
 	UnlimitedMaxSize = -1
 )
 
-type Handler func([]byte) error
+type Handler func(msg Message) error
 
 type Kind uint8
 
@@ -58,7 +45,7 @@ type Queue interface {
 	// Reports max handle failures
 	// Messages will be discarded after this many failures, or
 	// pushed to DLQ if DLQ is supported
-	// MaxHandleFailures() int
+	MaxHandleFailures() int
 
 	// Push data to end of queue
 	// Failed if queue is full or closed
@@ -66,7 +53,10 @@ type Queue interface {
 
 	// Pop data from beginning of queue without message confirmation
 	// Failed if queue is empty
-	Dequeue() ([]byte, error)
+
+	// The implementation MUST set the retryCount of the message to 0 if its retryCount > MaxHandleFailures,
+	// in the case, the message is from DLQ redriving.
+	Dequeue() (Message, error)
 
 	// Subscribe queue with message confirmation.
 	// Once handler returns error, it'll automatically put message back to queue using `Recover` mechanism internally.
@@ -83,17 +73,11 @@ type RecoverableQueue interface {
 
 type Recoverable interface {
 	// Recover providers the ability to put message back to queue when handler returns error or encounters panic.
-	// Message will be located at:
-	// 1. the end of queue if queue is standard queue or
-	// 2. the beginning of queue if queue is fifo queue
 
 	// If the queue supports `visibility window` like AWS SQS, the message will be put back to queue atomically without calling `Recover`.
-	// Then, no need to really put the message back to queue using `Recover`, just implement it like below:
-
-	// func Recover(data []byte) error { return nil }
-
-	// or just does not implement it
-	Recover([]byte) error
+	// It's useful if the panic is from outside of the queue handler.
+	// But it's recommended to use `Recover` if the panic is from inside the queue handler for retrying the message fast.
+	Recover(Message) error
 }
 
 type Purgeable interface {

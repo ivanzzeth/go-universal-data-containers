@@ -71,7 +71,7 @@ func (q *MemoryQueue) Name() string {
 }
 
 func (q *MemoryQueue) Enqueue(data []byte) error {
-	err := q.BaseQueue.Enqueue(data)
+	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
 	}
@@ -83,17 +83,32 @@ func (q *MemoryQueue) Enqueue(data []byte) error {
 		return ErrQueueFull
 	}
 
-	q.queue = append(q.queue, data)
+	packedData, err := q.Pack(data)
+	if err != nil {
+		return err
+	}
+
+	q.queue = append(q.queue, packedData)
 	return nil
 }
 
-func (q *MemoryQueue) Dequeue() ([]byte, error) {
+func (q *MemoryQueue) Dequeue() (Message, error) {
 	q.m.Lock()
 	defer q.m.Unlock()
 	if len(q.queue) > 0 {
-		data := q.queue[0]
+		packedData := q.queue[0]
 		q.queue = q.queue[1:]
-		return data, nil
+
+		msg, err := q.Unpack(packedData)
+		if err != nil {
+			return nil, err
+		}
+
+		if msg.RetryCount() > q.config.MaxHandleFailures {
+			msg.RefreshRetryCount()
+		}
+
+		return msg, nil
 	}
 
 	return nil, ErrQueueEmpty
@@ -115,21 +130,34 @@ Loop:
 				continue
 			}
 
-			msgBytes, err := q.Dequeue()
+			msg, err := q.Dequeue()
 			if err != nil {
-				time.Sleep(q.options.PollInterval)
+				time.Sleep(q.config.PollInterval)
 				continue Loop
 			}
 
-			q.cb(msgBytes)
+			q.cb(msg)
 		}
 	}
 }
 
-func (q *MemoryQueue) Recover(b []byte) error {
+func (q *MemoryQueue) Recover(msg Message) error {
+	if msg.RetryCount() > q.config.MaxHandleFailures {
+		// Just ignore it for now
+		return nil
+	}
+
+	msg.AddRetryCount()
+	msg.RefreshUpdatedAt()
+
+	packedData, err := msg.Pack()
+	if err != nil {
+		return err
+	}
+
 	q.m.Lock()
 	defer q.m.Unlock()
-	q.queue = append([][]byte{b}, q.queue...)
+	q.queue = append([][]byte{packedData}, q.queue...)
 	return nil
 }
 

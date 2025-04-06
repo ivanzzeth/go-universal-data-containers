@@ -19,3 +19,5 @@ type Message interface {
 	// Converts a binary package into the message
 	Unpack([]byte) error
 }
+
+type MessageIDGenerator func() ([]byte, error)

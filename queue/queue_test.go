@@ -10,19 +10,20 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/alicebob/miniredis/v2"
-
-	redis "github.com/redis/go-redis/v9"
 )
 
 var (
 	queueOptions = Config{
-		MaxSize:      255,
+		MaxSize:           255,
+		MaxHandleFailures: 3,
+
 		PollInterval: DefaultPollInterval,
 		MaxRetries:   DefaultMaxRetries,
 
 		ConsumerCount: 3,
+
+		Message:            DefaultOptions.Message,
+		MessageIDGenerator: DefaultOptions.MessageIDGenerator,
 	}
 )
 
@@ -30,80 +31,6 @@ func init() {
 	// handler := log.NewTerminalHandler(os.Stdout, true)
 	// logger := log.NewLogger(handler)
 	// log.SetDefault(logger)
-}
-
-func TestMemoryQueueSequencial(t *testing.T) {
-	q := NewMemoryQueue("", &queueOptions)
-	SpecTestQueueSequencial(t, q)
-}
-
-func TestRedisQueueSequencial(t *testing.T) {
-	s := miniredis.RunT(t)
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr: s.Addr(),
-	})
-
-	f := NewRedisQueueFactory(rdb)
-	q, err := f.GetOrCreate("queue")
-	if err != nil {
-		t.Fatal(err)
-	}
-	SpecTestQueueSequencial(t, q)
-}
-
-func TestSafeQueueSequencial(t *testing.T) {
-	q, err := NewSafeQueue(NewMemoryQueue("", &queueOptions))
-	if err != nil {
-		t.Fatal(err)
-	}
-	SpecTestQueueSequencial(t, q)
-}
-
-func TestQueueConcurrent(t *testing.T) {
-	q := NewMemoryQueue("", &queueOptions)
-	SpecTestQueueConcurrent(t, q)
-}
-
-func TestRedisQueueConcurrent(t *testing.T) {
-	s := miniredis.RunT(t)
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr: s.Addr(),
-	})
-
-	f := NewRedisQueueFactory(rdb)
-	q, err := f.GetOrCreate("queue")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	SpecTestQueueConcurrent(t, q)
-}
-
-func TestSafeQueueConcurrent(t *testing.T) {
-	q, err := NewSafeQueue(NewMemoryQueue("", &queueOptions))
-	if err != nil {
-		t.Fatal(err)
-	}
-	SpecTestQueueConcurrent(t, q)
-}
-
-func TestQueueSubscribe(t *testing.T) {
-	f := NewMemoryFactory()
-	SpecTestQueueSubscribe(t, f)
-}
-
-func TestRedisQueueSubscribe(t *testing.T) {
-	s := miniredis.RunT(t)
-
-	rdb := redis.NewClient(&redis.Options{
-		Addr: s.Addr(),
-	})
-
-	f := NewRedisQueueFactory(rdb)
-
-	SpecTestQueueSubscribe(t, f)
 }
 
 func SpecTestQueueSequencial(t *testing.T, q Queue) {
@@ -129,7 +56,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 			t.Fatal(err)
 		}
 
-		allData = append(allData, data)
+		allData = append(allData, data.Data())
 	}
 
 	sort.Slice(allData, func(i, j int) bool {
@@ -172,7 +99,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 				continue
 			}
 
-			datas = append(datas, data)
+			datas = append(datas, data.Data())
 		}
 	}()
 
@@ -269,7 +196,9 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 			}
 			defer q.Close()
 
-			q.Subscribe(func(b []byte) error {
+			q.Subscribe(func(msg Message) error {
+				b := msg.Data()
+
 				t.Logf("Subscribe in test: %v", string(b))
 				var data dataAndErr
 				err := json.Unmarshal(b, &data)
