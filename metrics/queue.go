@@ -65,6 +65,24 @@ var (
 		Help:      "Total number of actual data for recovering failed",
 	}, []string{queueName})
 
+	MetricQueuePurgeTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespaceQueue,
+		Name:      "queue_purge_total",
+		Help:      "Total number of actual data for purging",
+	}, []string{queueName})
+
+	MetricQueuePurgeSuccessulTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespaceQueue,
+		Name:      "queue_purge_successful_total",
+		Help:      "Total number of actual data for purging successful",
+	}, []string{queueName})
+
+	MetricQueuePurgeErrorTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: namespaceQueue,
+		Name:      "queue_purge_error_total",
+		Help:      "Total number of actual data for purging failed",
+	}, []string{queueName})
+
 	MetricQueueHandleDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: namespaceQueue,
 		Name:      "queue_handle_duration_seconds",

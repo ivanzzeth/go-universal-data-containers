@@ -9,6 +9,7 @@ var (
 	_ Factory          = &MemoryFactory{}
 	_ Queue            = &MemoryQueue{}
 	_ RecoverableQueue = &MemoryQueue{}
+	_ Purgeable        = &MemoryQueue{}
 )
 
 type MemoryFactory struct {
@@ -129,5 +130,12 @@ func (q *MemoryQueue) Recover(b []byte) error {
 	q.m.Lock()
 	defer q.m.Unlock()
 	q.queue = append([][]byte{b}, q.queue...)
+	return nil
+}
+
+func (q *MemoryQueue) Purge() error {
+	q.m.Lock()
+	defer q.m.Unlock()
+	q.queue = nil
 	return nil
 }

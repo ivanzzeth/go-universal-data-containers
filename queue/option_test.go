@@ -19,7 +19,7 @@ func TestOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	safeq := q.(*SafeQueue)
+	safeq := q.(*SimpleQueue)
 	instance := safeq.queue.(*MemoryQueue)
 	assert.Equal(t, 100, instance.options.MaxSize)
 	assert.Equal(t, 321*time.Second, instance.options.PollInterval)

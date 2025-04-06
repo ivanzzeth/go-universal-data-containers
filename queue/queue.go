@@ -90,3 +90,8 @@ type Recoverable interface {
 	// or just does not implement it
 	Recover([]byte) error
 }
+
+type Purgeable interface {
+	// Clean up the queue
+	Purge() error
+}
