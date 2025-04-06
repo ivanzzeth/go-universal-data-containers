@@ -22,7 +22,7 @@ func NewMemoryFactory() *MemoryFactory {
 	}
 }
 
-func (f *MemoryFactory) GetOrCreate(name string, options ...func(*QueueOptions)) (Queue, error) {
+func (f *MemoryFactory) GetOrCreate(name string, options ...Option) (Queue, error) {
 	ops := DefaultOptions
 	for _, op := range options {
 		op(&ops)
@@ -47,7 +47,7 @@ type MemoryQueue struct {
 	cb    Handler
 }
 
-func NewMemoryQueue(name string, options *QueueOptions) *MemoryQueue {
+func NewMemoryQueue(name string, options *Config) *MemoryQueue {
 	q := &MemoryQueue{
 		BaseQueue: NewBaseQueue(name, options),
 	}

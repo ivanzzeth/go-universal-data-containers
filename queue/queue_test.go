@@ -17,7 +17,7 @@ import (
 )
 
 var (
-	queueOptions = QueueOptions{
+	queueOptions = Config{
 		MaxSize:      255,
 		PollInterval: DefaultPollInterval,
 		MaxRetries:   DefaultMaxRetries,

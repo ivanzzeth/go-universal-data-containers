@@ -13,12 +13,12 @@ var (
 type BaseQueue struct {
 	m           sync.Mutex
 	name        string
-	options     *QueueOptions
+	options     *Config
 	cb          Handler
 	exitChannel chan int
 }
 
-func NewBaseQueue(name string, options *QueueOptions) *BaseQueue {
+func NewBaseQueue(name string, options *Config) *BaseQueue {
 	q := &BaseQueue{
 		name:        name,
 		options:     options,

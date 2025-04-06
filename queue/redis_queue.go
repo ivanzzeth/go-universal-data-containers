@@ -45,7 +45,7 @@ func NewRedisQueueFactory(redisClient redis.Cmdable) *RedisQueueFactory {
 	}
 }
 
-func (f *RedisQueueFactory) GetOrCreate(name string, options ...func(*QueueOptions)) (Queue, error) {
+func (f *RedisQueueFactory) GetOrCreate(name string, options ...Option) (Queue, error) {
 	ops := DefaultOptions
 	for _, op := range options {
 		op(&ops)
@@ -64,7 +64,7 @@ type RedisQueue struct {
 	q rmq.Queue
 }
 
-func NewRedisQueue(conn rmq.Connection, name string, options *QueueOptions) (*RedisQueue, error) {
+func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQueue, error) {
 	baseQueue := NewBaseQueue(name, options)
 	queue, err := conn.OpenQueue(name)
 	if err != nil {

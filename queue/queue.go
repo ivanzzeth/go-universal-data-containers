@@ -8,7 +8,7 @@ import (
 var (
 	DefaultPollInterval = 10 * time.Millisecond
 	DefaultMaxRetries   = 10
-	DefaultOptions      = QueueOptions{
+	DefaultOptions      = Config{
 		MaxSize:      UnlimitedMaxSize,
 		PollInterval: DefaultPollInterval,
 		MaxRetries:   DefaultMaxRetries,
@@ -41,19 +41,7 @@ var (
 type Factory interface {
 	// Create a new queue if name does not exist
 	// If name already exists, return the existing queue
-	GetOrCreate(name string, options ...func(*QueueOptions)) (Queue, error)
-}
-
-// Configuarable options here, but some implementations of queue may not support all options
-type QueueOptions struct {
-	MaxSize      int
-	PollInterval time.Duration
-	MaxRetries   int
-
-	// Specify how many consumers are consuming the queue using `Subscribe`.
-	// Be aware that too many consumers can cause order of messages to be changed.
-	// If you want to ensure the order of messages, please use FIFO queue and set ConsumerCount to 1
-	ConsumerCount int
+	GetOrCreate(name string, options ...Option) (Queue, error)
 }
 
 // The interface of queue
