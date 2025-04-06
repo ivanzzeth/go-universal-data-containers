@@ -55,6 +55,11 @@ type Queue interface {
 	// -1 for unlimited
 	MaxSize() int
 
+	// Reports max handle failures
+	// Messages will be discarded after this many failures, or
+	// pushed to DLQ if DLQ is supported
+	// MaxHandleFailures() int
+
 	// Push data to end of queue
 	// Failed if queue is full or closed
 	Enqueue([]byte) error
@@ -94,4 +99,17 @@ type Recoverable interface {
 type Purgeable interface {
 	// Clean up the queue
 	Purge() error
+}
+
+type DLQer interface {
+	DLQ() (DLQ, error)
+}
+
+type DLQ interface {
+	Queue
+
+	// Push `items` of messages to associated Queue
+	Redrive(items int) error
+
+	AssociatedQueue() Queue
 }

@@ -24,6 +24,9 @@ type SafeQueue interface {
 
 	Purgeable
 	IsPurgeable() bool
+
+	DLQer
+	IsDLQSupported() bool
 }
 
 type SimpleQueue struct {
@@ -192,5 +195,18 @@ func (q *SimpleQueue) Purge() error {
 
 func (q *SimpleQueue) IsPurgeable() bool {
 	_, ok := q.queue.(Purgeable)
+	return ok
+}
+
+func (q *SimpleQueue) DLQ() (DLQ, error) {
+	if dlqer, ok := q.queue.(DLQer); ok {
+		return dlqer.DLQ()
+	}
+
+	return nil, common.ErrNotImplemented
+}
+
+func (q *SimpleQueue) IsDLQSupported() bool {
+	_, ok := q.queue.(DLQer)
 	return ok
 }
