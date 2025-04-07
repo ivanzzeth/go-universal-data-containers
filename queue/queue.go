@@ -5,7 +5,7 @@ import (
 )
 
 const (
-	UnlimitedMaxSize = -1
+	UnlimitedSize = -1
 )
 
 type Handler func(msg Message) error
@@ -29,6 +29,9 @@ type Factory interface {
 	// Create a new queue if name does not exist
 	// If name already exists, return the existing queue
 	GetOrCreate(name string, options ...Option) (Queue, error)
+
+	// Same as GetOrCreate but returns SafeQueue
+	GetOrCreateSafe(name string, options ...Option) (SafeQueue, error)
 }
 
 // The interface of queue

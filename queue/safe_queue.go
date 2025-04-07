@@ -33,7 +33,7 @@ type SimpleQueue struct {
 	queue Queue
 }
 
-func NewSafeQueue(queue Queue) (*SimpleQueue, error) {
+func NewSimpleQueue(queue Queue) (*SimpleQueue, error) {
 	return &SimpleQueue{
 		queue: queue,
 	}, nil

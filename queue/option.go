@@ -10,7 +10,7 @@ var (
 	DefaultPollInterval = 10 * time.Millisecond
 	DefaultMaxRetries   = 10
 	DefaultOptions      = Config{
-		MaxSize: UnlimitedMaxSize,
+		MaxSize: UnlimitedSize,
 
 		MaxHandleFailures: 10,
 

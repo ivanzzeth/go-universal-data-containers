@@ -14,16 +14,27 @@ var (
 
 type MemoryFactory struct {
 	m     sync.Mutex
-	table map[string]Queue
+	table map[string]SafeQueue
 }
 
 func NewMemoryFactory() *MemoryFactory {
 	return &MemoryFactory{
-		table: make(map[string]Queue),
+		table: make(map[string]SafeQueue),
 	}
 }
 
 func (f *MemoryFactory) GetOrCreate(name string, options ...Option) (Queue, error) {
+	var queue Queue
+	safeQueue, err := f.GetOrCreateSafe(name, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	queue = safeQueue
+	return queue, nil
+}
+
+func (f *MemoryFactory) GetOrCreateSafe(name string, options ...Option) (SafeQueue, error) {
 	ops := DefaultOptions
 	for _, op := range options {
 		op(&ops)
@@ -32,7 +43,7 @@ func (f *MemoryFactory) GetOrCreate(name string, options ...Option) (Queue, erro
 	f.m.Lock()
 	defer f.m.Unlock()
 	if _, ok := f.table[name]; !ok {
-		q, err := NewSafeQueue(NewMemoryQueue(name, &ops))
+		q, err := NewSimpleQueue(NewMemoryQueue(name, &ops))
 		if err != nil {
 			return nil, err
 		}

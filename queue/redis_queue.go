@@ -55,7 +55,21 @@ func (f *RedisQueueFactory) GetOrCreate(name string, options ...Option) (Queue, 
 		return nil, err
 	}
 
-	return NewSafeQueue(q)
+	return NewSimpleQueue(q)
+}
+
+func (f *RedisQueueFactory) GetOrCreateSafe(name string, options ...Option) (SafeQueue, error) {
+	ops := DefaultOptions
+	for _, op := range options {
+		op(&ops)
+	}
+
+	q, err := NewRedisQueue(f.rmqConn, name, &ops)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewSimpleQueue(q)
 }
 
 type RedisQueue struct {
@@ -125,7 +139,7 @@ func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQue
 }
 
 func (q *RedisQueue) MaxSize() int {
-	return UnlimitedMaxSize
+	return UnlimitedSize
 }
 
 func (q *RedisQueue) Enqueue(data []byte) error {

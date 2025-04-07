@@ -42,7 +42,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 		}
 	}
 
-	if q.MaxSize() != UnlimitedMaxSize {
+	if q.MaxSize() != UnlimitedSize {
 		err := q.Enqueue([]byte{byte(maxSize + 1)})
 		if !errors.Is(err, ErrQueueFull) {
 			t.Fatal("expected", ErrQueueFull, "got", err)
@@ -279,7 +279,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 
 func getMaxSize(q Queue) int {
 	maxSize := q.MaxSize()
-	if maxSize == UnlimitedMaxSize {
+	if maxSize == UnlimitedSize {
 		maxSize = 10
 	}
 
