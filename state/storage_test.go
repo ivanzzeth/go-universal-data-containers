@@ -92,117 +92,118 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 	b.ReportAllocs()
 
-	// err := registry.RegisterState(NewTestUserModel())
-	// if err != nil {
-	// 	b.Fatal(err)
-	// }
+	err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+	if err != nil {
+		b.Fatal(err)
+	}
 
-	// snapshot1, err := storage.SnapshotStates()
-	// if err != nil {
-	// 	b.Fatal(err)
-	// }
+	snapshot1, err := storage.SnapshotStates()
+	if err != nil {
+		b.Fatal(err)
+	}
 
-	// b.Run("Test simple sync.Map", func(b *testing.B) {
-	// 	b.ResetTimer()
-	// 	var table sync.Map
-	// 	for i := 0; i < b.N; i++ {
-	// 		u1 := NewTestUserModel()
-	// 		u1.Name = "user1"
-	// 		u1.Age = 1
-	// 		u1.Height = 1
-	// 		u1.SetStateID("1")
-	// 		table.Store(u1.StateID(), u1)
-	// 	}
-	// })
+	b.Run("Test simple sync.Map", func(b *testing.B) {
+		b.ResetTimer()
+		var table sync.Map
+		for i := 0; i < b.N; i++ {
+			u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+			u1.Age = 1
+			u1.Height = 1
+			stateID, err := u1.GetIDComposer().ComposeStateID(u1.StateIDComponents()...)
+			if err != nil {
+				b.Fatal(err)
+			}
 
-	// b.Run("Test single save", func(b *testing.B) {
-	// 	b.ResetTimer()
+			table.Store(stateID, u1)
+		}
+	})
 
-	// 	for i := 0; i < b.N; i++ {
-	// 		u1 := NewTestUserModel()
-	// 		u1.Name = "user1"
-	// 		u1.Age = 1
-	// 		u1.Height = 1
-	// 		u1.SetStateID("1")
+	b.Run("Test single save", func(b *testing.B) {
+		b.ResetTimer()
 
-	// 		err = storage.SaveStates(u1)
-	// 		if err != nil {
-	// 			b.Fatal(err)
-	// 		}
-	// 	}
-	// })
+		for i := 0; i < b.N; i++ {
+			u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+			u1.Age = 1
+			u1.Height = 1
 
-	// err = storage.RevertStatesToSnapshot(snapshot1)
-	// if err != nil {
-	// 	b.Fatal(err)
-	// }
+			err = storage.SaveStates(u1)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 
-	// b.Run("Test single load", func(b *testing.B) {
-	// 	u1 := NewTestUserModel()
-	// 	u1.Name = "user1"
-	// 	u1.Age = 1
-	// 	u1.Height = 1
-	// 	u1.SetStateID("1")
+	err = storage.RevertStatesToSnapshot(snapshot1)
+	if err != nil {
+		b.Fatal(err)
+	}
 
-	// 	err = storage.SaveStates(u1)
-	// 	if err != nil {
-	// 		b.Fatal(err)
-	// 	}
+	b.Run("Test single load", func(b *testing.B) {
+		u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+		u1.Age = 1
+		u1.Height = 1
 
-	// 	b.ResetTimer()
+		err = storage.SaveStates(u1)
+		if err != nil {
+			b.Fatal(err)
+		}
 
-	// 	for i := 0; i < b.N; i++ {
-	// 		_, err := storage.LoadState("user", "1")
-	// 		if err != nil {
-	// 			b.Fatal(err)
-	// 		}
-	// 	}
-	// })
+		b.ResetTimer()
 
-	// err = storage.RevertStatesToSnapshot(snapshot1)
-	// if err != nil {
-	// 	b.Fatal(err)
-	// }
+		for i := 0; i < b.N; i++ {
+			stateID, err := u1.GetIDComposer().ComposeStateID(u1.StateIDComponents()...)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_, err = storage.LoadState("user", stateID)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
 
-	// b.Run("Test single revert for 10k states", func(b *testing.B) {
-	// 	users := []State{}
-	// 	for i := 0; i < 10_000; i++ {
-	// 		user := NewTestUserModel()
-	// 		user.Name = fmt.Sprintf("user-%v", i)
-	// 		user.Age = i
-	// 		user.Height = i
-	// 		user.SetStateID(fmt.Sprint(i))
+	err = storage.RevertStatesToSnapshot(snapshot1)
+	if err != nil {
+		b.Fatal(err)
+	}
 
-	// 		users = append(users, user)
-	// 	}
+	b.Run("Test single revert for 10k states", func(b *testing.B) {
+		users := []State{}
+		for i := 0; i < 10_000; i++ {
+			u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+			u1.Age = 1
+			u1.Height = 1
 
-	// 	err = storage.SaveStates(users...)
-	// 	if err != nil {
-	// 		b.Fatal(err)
-	// 	}
+			users = append(users, u1)
+		}
 
-	// 	snapshot2, err := storage.SnapshotStates()
-	// 	if err != nil {
-	// 		b.Fatal(err)
-	// 	}
+		err = storage.SaveStates(users...)
+		if err != nil {
+			b.Fatal(err)
+		}
 
-	// 	b.ResetTimer()
+		snapshot2, err := storage.SnapshotStates()
+		if err != nil {
+			b.Fatal(err)
+		}
 
-	// 	for i := 0; i < b.N; i++ {
-	// 		err = storage.RevertStatesToSnapshot(snapshot1)
-	// 		if err != nil {
-	// 			b.Fatal(err)
-	// 		}
+		b.ResetTimer()
 
-	// 		err = storage.RevertStatesToSnapshot(snapshot2)
-	// 		if err != nil {
-	// 			b.Fatal(err)
-	// 		}
-	// 	}
-	// })
+		for i := 0; i < b.N; i++ {
+			err = storage.RevertStatesToSnapshot(snapshot1)
+			if err != nil {
+				b.Fatal(err)
+			}
 
-	// err = storage.RevertStatesToSnapshot(snapshot1)
-	// if err != nil {
-	// 	b.Fatal(err)
-	// }
+			err = storage.RevertStatesToSnapshot(snapshot2)
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	err = storage.RevertStatesToSnapshot(snapshot1)
+	if err != nil {
+		b.Fatal(err)
+	}
 }
