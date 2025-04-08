@@ -11,8 +11,7 @@ var (
 )
 
 type BaseState struct {
-	stateName         string
-	stateIdComponents []any
+	stateName string
 	sync.Locker
 }
 
