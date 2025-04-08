@@ -1,26 +1,71 @@
 package state
 
-import "sync"
-
-var (
-	_ Storage = (*MemoryStateStorage)(nil)
+import (
+	"sync"
+	"time"
 )
 
-type MemoryStateStorage struct {
+var (
+	_ Storage = (*MemoryStorage)(nil)
+)
+
+type MemoryStorageFactory struct {
+	registry    Registry
+	newSnapshot func(storageFactory StorageFactory) StorageSnapshot
+	table       sync.Map
+}
+
+func NewMemoryStorageFactory(registry Registry, newSnapshot func(storageFactory StorageFactory) StorageSnapshot) *MemoryStorageFactory {
+	return &MemoryStorageFactory{registry: registry, newSnapshot: newSnapshot}
+}
+
+func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
+	// fmt.Printf("GetOrCreateStorage: %v\n", name)
+
+	storeVal, _ := f.table.LoadOrStore(name, func() interface{} {
+		if f.newSnapshot == nil {
+			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
+				return NewBaseStorageSnapshot(f)
+			}
+		}
+		snapshot := f.newSnapshot(f)
+		storage := NewMemoryStateStorage(f.registry, snapshot)
+		return storage
+	}())
+
+	// fmt.Printf("GetOrCreateStorage storage: %v\n", reflect.TypeOf(storeVal))
+	return storeVal.(Storage), nil
+}
+
+type MemoryStorage struct {
 	Registry
 
-	m      sync.RWMutex
+	m sync.RWMutex
+	StorageSnapshot
+
+	// Only used for simulating network latency
+	delay  time.Duration
 	States map[string]map[string]State
 }
 
-func NewMemoryStateStorage(registry Registry) *MemoryStateStorage {
-	return &MemoryStateStorage{
+func NewMemoryStateStorage(registry Registry, snapshot StorageSnapshot) *MemoryStorage {
+	s := &MemoryStorage{
 		Registry: registry,
 		States:   make(map[string]map[string]State),
 	}
+
+	snapshot.SetStorage(s)
+	s.StorageSnapshot = snapshot
+	return s
 }
 
-func (s *MemoryStateStorage) GetStateIDs(name string) ([]string, error) {
+func (s *MemoryStorage) setDelay(delay time.Duration) {
+	s.delay = delay
+}
+
+func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
+	time.Sleep(s.delay)
+
 	s.m.RLock()
 	defer s.m.RUnlock()
 
@@ -38,7 +83,9 @@ func (s *MemoryStateStorage) GetStateIDs(name string) ([]string, error) {
 	return ids, nil
 }
 
-func (s *MemoryStateStorage) GetStateNames() ([]string, error) {
+func (s *MemoryStorage) GetStateNames() ([]string, error) {
+	time.Sleep(s.delay)
+
 	s.m.RLock()
 	defer s.m.RUnlock()
 
@@ -50,7 +97,9 @@ func (s *MemoryStateStorage) GetStateNames() ([]string, error) {
 	return names, nil
 }
 
-func (s *MemoryStateStorage) LoadAllStates() ([]State, error) {
+func (s *MemoryStorage) LoadAllStates() ([]State, error) {
+	time.Sleep(s.delay)
+
 	s.m.RLock()
 	defer s.m.RUnlock()
 
@@ -64,7 +113,9 @@ func (s *MemoryStateStorage) LoadAllStates() ([]State, error) {
 	return states, nil
 }
 
-func (s *MemoryStateStorage) LoadState(name string, id string) (State, error) {
+func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
+	time.Sleep(s.delay)
+
 	s.m.RLock()
 	defer s.m.RUnlock()
 
@@ -86,7 +137,9 @@ func (s *MemoryStateStorage) LoadState(name string, id string) (State, error) {
 	return state, nil
 }
 
-func (s *MemoryStateStorage) SaveStates(states ...State) error {
+func (s *MemoryStorage) SaveStates(states ...State) error {
+	time.Sleep(s.delay)
+
 	s.m.Lock()
 	defer s.m.Unlock()
 
@@ -107,7 +160,9 @@ func (s *MemoryStateStorage) SaveStates(states ...State) error {
 	return nil
 }
 
-func (s *MemoryStateStorage) ClearAllStates() error {
+func (s *MemoryStorage) ClearAllStates() error {
+	time.Sleep(s.delay)
+
 	s.m.Lock()
 	defer s.m.Unlock()
 

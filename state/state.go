@@ -11,16 +11,6 @@ var (
 	ErrStateNotPointer    = errors.New("state must be a pointer")
 )
 
-type Storage interface {
-	LoadState(name string, id string) (State, error)
-	LoadAllStates() ([]State, error)
-	SaveStates(states ...State) error
-	ClearAllStates() error
-
-	GetStateIDs(name string) ([]string, error)
-	GetStateNames() ([]string, error)
-}
-
 type State interface {
 	StateName() string
 	StateID() string

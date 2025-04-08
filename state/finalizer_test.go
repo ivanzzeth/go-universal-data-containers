@@ -1,24 +1,10 @@
 package state
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
-
-type TestUserModel struct {
-	BaseState
-	Name   string
-	Age    int
-	Height int
-}
-
-func NewTestUserModel() *TestUserModel {
-	state := NewBaseState(&sync.Mutex{})
-	state.SetStateName("user")
-	return &TestUserModel{BaseState: state}
-}
 
 func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	err := finalizer.ClearAllCachedStates()

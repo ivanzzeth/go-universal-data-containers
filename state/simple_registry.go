@@ -6,22 +6,23 @@ import (
 )
 
 var (
-	simpleStateRegistry = NewSimpleRegistry()
+	_                   Registry = (*SimpleRegistry)(nil)
+	simpleStateRegistry          = NewSimpleRegistry()
 )
 
-func GetSimpleStateRegistry() *SimpleStateRegistry {
+func GetSimpleStateRegistry() *SimpleRegistry {
 	return simpleStateRegistry
 }
 
-type SimpleStateRegistry struct {
+type SimpleRegistry struct {
 	States sync.Map
 }
 
-func NewSimpleRegistry() *SimpleStateRegistry {
-	return &SimpleStateRegistry{}
+func NewSimpleRegistry() *SimpleRegistry {
+	return &SimpleRegistry{}
 }
 
-func (s *SimpleStateRegistry) RegisterState(state State) error {
+func (s *SimpleRegistry) RegisterState(state State) error {
 	if reflect.TypeOf(state).Kind() != reflect.Pointer {
 		return ErrStateNotPointer
 	}
@@ -29,7 +30,7 @@ func (s *SimpleStateRegistry) RegisterState(state State) error {
 	return nil
 }
 
-func (s *SimpleStateRegistry) NewState(name string) (State, error) {
+func (s *SimpleRegistry) NewState(name string) (State, error) {
 	registered, ok := s.States.Load(name)
 	if !ok {
 		return nil, ErrStateNotRegistered

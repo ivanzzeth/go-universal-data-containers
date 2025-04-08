@@ -12,8 +12,8 @@ type BaseState struct {
 	sync.Locker
 }
 
-func NewBaseState(locker sync.Locker) BaseState {
-	return BaseState{
+func NewBaseState(locker sync.Locker) *BaseState {
+	return &BaseState{
 		Locker: locker,
 	}
 }

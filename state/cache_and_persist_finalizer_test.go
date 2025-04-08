@@ -9,8 +9,15 @@ func TestCacheAndPersistFinalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cache := NewMemoryStateStorage(registry)
-	persist := NewMemoryStateStorage(registry)
-	f := NewCacheAndPersistStateFinalizer(registry, cache, persist)
+	storageFactory := NewMemoryStorageFactory(registry, nil)
+	cacheSnapshot := NewBaseStorageSnapshot(storageFactory)
+	cache := NewMemoryStateStorage(registry, cacheSnapshot)
+	cacheSnapshot.SetStorage(cache)
+
+	persistSnapshot := NewBaseStorageSnapshot(storageFactory)
+	persist := NewMemoryStateStorage(registry, persistSnapshot)
+	persistSnapshot.SetStorage(persist)
+
+	f := NewCacheAndPersistFinalizer(registry, cache, persist)
 	SpecTestFinalizer(t, f)
 }

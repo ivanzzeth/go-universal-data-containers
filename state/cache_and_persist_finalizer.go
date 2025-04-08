@@ -12,7 +12,7 @@ type CacheAndPersistFinalizer struct {
 	persist  Storage
 }
 
-func NewCacheAndPersistStateFinalizer(registry Registry, cache Storage, persist Storage) *CacheAndPersistFinalizer {
+func NewCacheAndPersistFinalizer(registry Registry, cache Storage, persist Storage) *CacheAndPersistFinalizer {
 	return &CacheAndPersistFinalizer{
 		registry: registry,
 		cache:    cache,
