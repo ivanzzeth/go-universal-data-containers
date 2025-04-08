@@ -32,23 +32,8 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 		t.Fatal(err)
 	}
 
-	userState1, err := finalizer.LoadState(user1.StateName(), user1StateID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assert.Equal(t, "user", userState1.StateName())
-
-	user1, ok := userState1.(*TestUserModel)
-	if !ok {
-		t.Fatal("userState1 is not *TestUserModel")
-	}
-
-	// check default values for first loading
-	assert.Equal(t, "", user1.Name)
-	assert.Equal(t, "", user1.Server)
-	assert.Equal(t, 0, user1.Age)
-	assert.Equal(t, 0, user1.Height)
+	_, err = finalizer.LoadState(user1.StateName(), user1StateID)
+	assert.Equal(t, err, ErrStateNotFound)
 
 	user1.Name = user1Name
 	user1.Server = "server"
@@ -84,23 +69,8 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 		t.Fatal(err)
 	}
 
-	userState1, err = finalizer.LoadState("user", user1StateID)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assert.Equal(t, "user", userState1.StateName())
-
-	user1, ok = userState1.(*TestUserModel)
-	if !ok {
-		t.Fatal("userState1 is not *TestUserModel")
-	}
-
-	// check default values for first loading
-	assert.Equal(t, "", user1.Name)
-	assert.Equal(t, "", user1.Server)
-	assert.Equal(t, 0, user1.Age)
-	assert.Equal(t, 0, user1.Height)
+	_, err = finalizer.LoadState("user", user1StateID)
+	assert.Equal(t, err, ErrStateNotFound)
 
 	// Revert to snapshot2
 	err = finalizer.RevertStatesToSnapshot(snapshot2)
@@ -120,7 +90,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	}
 	assert.Equal(t, "user", newUserState1.StateName())
 
-	newUser1, ok = newUserState1.(*TestUserModel)
+	newUser1, ok := newUserState1.(*TestUserModel)
 	if !ok {
 		t.Fatal("newUserState1 is not *TestUserModel")
 	}
