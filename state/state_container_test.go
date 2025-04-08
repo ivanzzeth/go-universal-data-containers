@@ -41,7 +41,11 @@ func TestFinalizerStateContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Change the value in memory
+	// Change the value in memory.
+	// Use sync.Locker to make sure concurrent safety accross
+	// 1. go-routines if the implementation of sync.Locker is like sync.Mutex or
+	// 2. micro-services if the implementation of sync.Locker is distributed locker.
+	user1.Lock()
 	user1.Age = 18
 	user1.Height = 180
 
@@ -50,6 +54,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	user1.Unlock()
 
 	// Load user1 from cache
 	newUser1, err := NewStateContainer(finalizer, NewTestUserModel(&sync.Mutex{}, "user1", "server")).Get()
