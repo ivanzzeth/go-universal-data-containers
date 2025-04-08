@@ -13,10 +13,10 @@ var (
 
 type State interface {
 	StateName() string
-	StateID() string
-
 	SetStateName(name string)
-	SetStateID(id string)
+
+	GetIDComposer() IDComposer
+	StateIDComponents() []any
 
 	GetLocker() sync.Locker
 	SetLocker(locker sync.Locker)

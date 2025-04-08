@@ -1,6 +1,7 @@
 package state
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,14 +9,14 @@ import (
 
 func SpecTestRegistry(t *testing.T, r Registry) {
 	t.Run("RegisterState", func(t *testing.T) {
-		err := r.RegisterState(NewTestUserModel())
+		err := r.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
 			t.Error(err)
 		}
 	})
 
 	t.Run("LoadState", func(t *testing.T) {
-		userTemplate := NewTestUserModel()
+		userTemplate := NewTestUserModel(&sync.Mutex{}, "", "")
 		err := r.RegisterState(userTemplate)
 		if err != nil {
 			t.Error(err)
@@ -32,7 +33,6 @@ func SpecTestRegistry(t *testing.T, r Registry) {
 		}
 
 		assert.Equal(t, userTemplate.StateName(), user.StateName())
-		assert.Equal(t, userTemplate.StateID(), user.StateID())
 
 		assert.Equal(t, "", user.Name)
 		assert.Equal(t, 0, user.Age)

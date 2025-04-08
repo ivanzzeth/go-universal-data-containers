@@ -37,8 +37,6 @@ func (s *CacheAndPersistFinalizer) LoadState(name string, id string) (State, err
 			if err != nil {
 				return nil, err
 			}
-
-			state.SetStateID(id)
 		}
 	}
 

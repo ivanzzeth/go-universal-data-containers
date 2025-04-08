@@ -1,10 +1,13 @@
 package state
 
-import "testing"
+import (
+	"sync"
+	"testing"
+)
 
 func TestCacheAndPersistFinalizer(t *testing.T) {
 	registry := NewSimpleRegistry()
-	err := registry.RegisterState(NewTestUserModel())
+	err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}

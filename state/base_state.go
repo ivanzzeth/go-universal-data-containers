@@ -1,14 +1,18 @@
 package state
 
-import "sync"
+import (
+	"sync"
+
+	"github.com/ivanzzeth/go-universal-data-containers/common"
+)
 
 var (
 	_ State = (*BaseState)(nil)
 )
 
 type BaseState struct {
-	stateName string
-	stateID   string
+	stateName         string
+	stateIdComponents []any
 	sync.Locker
 }
 
@@ -18,16 +22,16 @@ func NewBaseState(locker sync.Locker) *BaseState {
 	}
 }
 
-func (s *BaseState) StateID() string {
-	return s.stateID
-}
-
 func (s *BaseState) StateName() string {
 	return s.stateName
 }
 
-func (s *BaseState) SetStateID(id string) {
-	s.stateID = id
+func (s *BaseState) GetIDComposer() IDComposer {
+	panic(common.ErrNotImplemented)
+}
+
+func (s *BaseState) StateIDComponents() []any {
+	panic(common.ErrNotImplemented)
 }
 
 func (s *BaseState) SetStateName(name string) {
