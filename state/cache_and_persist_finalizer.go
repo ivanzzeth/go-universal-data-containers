@@ -8,15 +8,17 @@ var (
 
 type CacheAndPersistFinalizer struct {
 	registry Registry
-	cache    Storage
-	persist  Storage
+	StorageSnapshot
+	cache   Storage
+	persist Storage
 }
 
 func NewCacheAndPersistFinalizer(registry Registry, cache Storage, persist Storage) *CacheAndPersistFinalizer {
 	return &CacheAndPersistFinalizer{
-		registry: registry,
-		cache:    cache,
-		persist:  persist,
+		registry:        registry,
+		StorageSnapshot: cache,
+		cache:           cache,
+		persist:         persist,
 	}
 }
 
@@ -54,6 +56,16 @@ func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() error {
 	}
 
 	err = s.persist.SaveStates(states...)
+	if err != nil {
+		return err
+	}
+
+	err = s.ClearAllCachedStates()
+	if err != nil {
+		return err
+	}
+
+	err = s.cache.ClearSnapshots()
 	if err != nil {
 		return err
 	}
