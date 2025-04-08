@@ -5,24 +5,24 @@ import (
 	"reflect"
 )
 
-type FinalizerStateContainer[T State] struct {
+type StateContainer[T State] struct {
 	finalizer Finalizer
 	state     T
 }
 
-func NewStateContainer[T State](finalizer Finalizer, state T) *FinalizerStateContainer[T] {
-	return &FinalizerStateContainer[T]{
+func NewStateContainer[T State](finalizer Finalizer, state T) *StateContainer[T] {
+	return &StateContainer[T]{
 		finalizer: finalizer,
 		state:     state,
 	}
 }
 
-func (s *FinalizerStateContainer[T]) Wrap(state T) *FinalizerStateContainer[T] {
+func (s *StateContainer[T]) Wrap(state T) *StateContainer[T] {
 	s.state = state
 	return s
 }
 
-func (s *FinalizerStateContainer[T]) Get() (T, error) {
+func (s *StateContainer[T]) Get() (T, error) {
 	if len(s.state.StateIDComponents()) == 0 {
 		return reflect.New(reflect.TypeOf(s.state)).Elem().Interface().(T), ErrStateIDComponents
 	}
@@ -47,10 +47,10 @@ func (s *FinalizerStateContainer[T]) Get() (T, error) {
 	return s.state, nil
 }
 
-func (s *FinalizerStateContainer[T]) Unwrap() T {
+func (s *StateContainer[T]) Unwrap() T {
 	return s.state
 }
 
-func (s *FinalizerStateContainer[T]) Save() error {
+func (s *StateContainer[T]) Save() error {
 	return s.finalizer.SaveState(s.state)
 }
