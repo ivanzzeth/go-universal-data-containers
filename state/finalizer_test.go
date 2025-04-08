@@ -24,9 +24,15 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	}
 	assert.Equal(t, 1, snapshot1)
 
+	// Pattern1: LoadState then assert state as *TestUserModel
 	user1Name := "user1"
 	user1 := NewTestUserModel(&sync.Mutex{}, user1Name, "server")
-	userState1, err := finalizer.LoadState(user1.StateName(), user1Name)
+	user1StateID, err := user1.GetIDComposer().ComposeStateID(user1.StateIDComponents()...)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userState1, err := finalizer.LoadState(user1.StateName(), user1StateID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,19 +66,11 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	}
 	assert.Equal(t, 2, snapshot2)
 
-	user1StateID, err := user1.GetIDComposer().ComposeStateID(user1.StateIDComponents()...)
+	// Pattern2:
+	newUser1 := NewTestUserModel(&sync.Mutex{}, user1Name, "server")
+	err = newUser1.WithStateFinalizer(finalizer).Get()
 	if err != nil {
 		t.Fatal(err)
-	}
-	newUserState1, err := finalizer.LoadState("user", user1StateID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assert.Equal(t, "user", newUserState1.StateName())
-
-	newUser1, ok := newUserState1.(*TestUserModel)
-	if !ok {
-		t.Fatal("newUserState1 is not *TestUserModel")
 	}
 
 	assert.Equal(t, user1Name, newUser1.Name)
@@ -86,7 +84,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 		t.Fatal(err)
 	}
 
-	userState1, err = finalizer.LoadState("user", user1Name)
+	userState1, err = finalizer.LoadState("user", user1StateID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +114,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newUserState1, err = finalizer.LoadState("user", user1StateID)
+	newUserState1, err := finalizer.LoadState("user", user1StateID)
 	if err != nil {
 		t.Fatal(err)
 	}
