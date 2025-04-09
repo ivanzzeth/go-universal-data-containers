@@ -3,6 +3,7 @@ package state
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestCacheAndPersistFinalizer(t *testing.T) {
@@ -21,6 +22,8 @@ func TestCacheAndPersistFinalizer(t *testing.T) {
 	persist := NewMemoryStateStorage(registry, persistSnapshot)
 	persistSnapshot.SetStorage(persist)
 
-	f := NewCacheAndPersistFinalizer(registry, cache, persist)
+	ticker := time.NewTicker(2 * time.Second).C
+	f := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)
+	defer f.Close()
 	SpecTestFinalizer(t, f)
 }

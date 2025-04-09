@@ -1,25 +1,44 @@
 package state
 
-import "errors"
+import (
+	"errors"
+	"sync/atomic"
+	"time"
+)
 
 var (
 	_ Finalizer = (*CacheAndPersistFinalizer)(nil)
 )
 
 type CacheAndPersistFinalizer struct {
+	ticker <-chan time.Time
+
 	registry Registry
 	StorageSnapshot
-	cache   Storage
-	persist Storage
+	cache               Storage
+	persist             Storage
+	autoFinalizeEnabled atomic.Bool
+	exitChannel         chan struct{}
 }
 
-func NewCacheAndPersistFinalizer(registry Registry, cache Storage, persist Storage) *CacheAndPersistFinalizer {
-	return &CacheAndPersistFinalizer{
+func NewCacheAndPersistFinalizer(ticker <-chan time.Time, registry Registry, cache Storage, persist Storage) *CacheAndPersistFinalizer {
+	f := &CacheAndPersistFinalizer{
+		ticker:          ticker,
 		registry:        registry,
 		StorageSnapshot: cache,
 		cache:           cache,
 		persist:         persist,
+
+		exitChannel: make(chan struct{}),
 	}
+
+	go f.run()
+
+	return f
+}
+
+func (s *CacheAndPersistFinalizer) Close() {
+	close(s.exitChannel)
 }
 
 func (s *CacheAndPersistFinalizer) LoadState(name string, id string) (State, error) {
@@ -62,19 +81,44 @@ func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() error {
 		return err
 	}
 
-	err = s.ClearAllCachedStates()
-	if err != nil {
-		return err
-	}
+	// err = s.ClearAllCachedStates()
+	// if err != nil {
+	// 	return err
+	// }
 
-	err = s.cache.ClearSnapshots()
-	if err != nil {
-		return err
-	}
+	// MUST clear snapshots manully
+	// err = s.cache.ClearSnapshots()
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
 
 func (s *CacheAndPersistFinalizer) ClearAllCachedStates() error {
 	return s.cache.ClearAllStates()
+}
+
+func (s *CacheAndPersistFinalizer) EnableAutoFinalizeAllCachedStates(enable bool) {
+	s.autoFinalizeEnabled.Store(enable)
+}
+
+func (s *CacheAndPersistFinalizer) run() {
+	for {
+		select {
+		case <-s.exitChannel:
+			return
+		case <-s.ticker:
+			if s.autoFinalizeEnabled.Load() {
+				err := s.FinalizeAllCachedStates()
+				if err != nil {
+					// TODO: logging
+					// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)
+					continue
+				}
+			}
+
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }

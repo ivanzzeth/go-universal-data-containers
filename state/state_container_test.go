@@ -3,6 +3,7 @@ package state
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -23,7 +24,9 @@ func TestFinalizerStateContainer(t *testing.T) {
 	persist := NewMemoryStateStorage(registry, persistSnapshot)
 	persistSnapshot.SetStorage(persist)
 
-	finalizer := NewCacheAndPersistFinalizer(registry, cache, persist)
+	ticker := time.NewTicker(2 * time.Second).C
+	finalizer := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)
+	defer finalizer.Close()
 
 	user1Container := NewStateContainer(finalizer, NewTestUserModel(&sync.Mutex{}, "user1", "server"))
 	user1, err := user1Container.Get()

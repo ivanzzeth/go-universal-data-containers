@@ -7,4 +7,7 @@ type Finalizer interface {
 
 	FinalizeAllCachedStates() error
 	ClearAllCachedStates() error
+	EnableAutoFinalizeAllCachedStates(enable bool)
+
+	Close()
 }
