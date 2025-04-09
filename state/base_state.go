@@ -11,7 +11,8 @@ var (
 )
 
 type BaseState struct {
-	stateName string
+	stateName   string
+	idMarshaler IDMarshaler
 	sync.Locker
 }
 
@@ -25,8 +26,16 @@ func (s *BaseState) StateName() string {
 	return s.stateName
 }
 
-func (s *BaseState) GetIDComposer() IDComposer {
-	panic(common.ErrNotImplemented)
+func (s *BaseState) GetIDMarshaler() IDMarshaler {
+	if s.idMarshaler == nil {
+		panic(common.ErrNotImplemented)
+	}
+
+	return s.idMarshaler
+}
+
+func (s *BaseState) SetIDMarshaler(idMarshaler IDMarshaler) {
+	s.idMarshaler = idMarshaler
 }
 
 func (s *BaseState) StateIDComponents() []any {

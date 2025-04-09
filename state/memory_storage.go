@@ -154,7 +154,7 @@ func (s *MemoryStorage) SaveStates(states ...State) error {
 			s.States[state.StateName()] = table
 		}
 
-		stateId, err := state.GetIDComposer().ComposeStateID(state.StateIDComponents()...)
+		stateId, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
 		if err != nil {
 			return err
 		}

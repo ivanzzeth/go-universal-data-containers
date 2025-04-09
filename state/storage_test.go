@@ -44,7 +44,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			t.Fatal(err)
 		}
 
-		u1ID, err := u1.GetIDComposer().ComposeStateID("user1", "server")
+		u1ID, err := u1.GetIDMarshaler().MarshalStateID("user1", "server")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -109,7 +109,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 			u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
 			u1.Age = 1
 			u1.Height = 1
-			stateID, err := u1.GetIDComposer().ComposeStateID(u1.StateIDComponents()...)
+			stateID, err := u1.GetIDMarshaler().MarshalStateID(u1.StateIDComponents()...)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -151,7 +151,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
-			stateID, err := u1.GetIDComposer().ComposeStateID(u1.StateIDComponents()...)
+			stateID, err := u1.GetIDMarshaler().MarshalStateID(u1.StateIDComponents()...)
 			if err != nil {
 				b.Fatal(err)
 			}

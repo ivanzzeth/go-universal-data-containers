@@ -27,7 +27,7 @@ func (s *StateContainer[T]) Get() (T, error) {
 		return reflect.New(reflect.TypeOf(s.state)).Elem().Interface().(T), ErrStateIDComponents
 	}
 
-	stateID, err := s.state.GetIDComposer().ComposeStateID(s.state.StateIDComponents()...)
+	stateID, err := s.state.GetIDMarshaler().MarshalStateID(s.state.StateIDComponents()...)
 	if err != nil {
 		return s.state, err
 	}

@@ -27,7 +27,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	// Pattern1: LoadState then assert state as *TestUserModel
 	user1Name := "user1"
 	user1 := NewTestUserModel(&sync.Mutex{}, user1Name, "server")
-	user1StateID, err := user1.GetIDComposer().ComposeStateID(user1.StateIDComponents()...)
+	user1StateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 
 	user1.Name = user1Name
 	user1.Server = "server"
-	user1StateID, err = user1.GetIDComposer().ComposeStateID(user1.StateIDComponents()...)
+	user1StateID, err = user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,6 +17,7 @@ type TestUserModel struct {
 func NewTestUserModel(locker sync.Locker, name, server string) *TestUserModel {
 	state := NewBaseState(locker)
 	state.SetStateName("user")
+	state.SetIDMarshaler(NewJsonIDMarshaler("-"))
 	return &TestUserModel{BaseState: *state, Name: name, Server: server}
 }
 
@@ -26,7 +27,7 @@ func (u *TestUserModel) WithStateFinalizer(finalizer Finalizer) *TestUserModel {
 }
 
 func (u *TestUserModel) Get() error {
-	stateID, err := u.GetIDComposer().ComposeStateID(u.StateIDComponents()...)
+	stateID, err := u.GetIDMarshaler().MarshalStateID(u.StateIDComponents()...)
 	if err != nil {
 		return err
 	}
@@ -40,10 +41,6 @@ func (u *TestUserModel) Get() error {
 	return nil
 }
 
-func (u *TestUserModel) GetIDComposer() IDComposer {
-	return NewJsonIDComposer("-")
-}
-
 func (u *TestUserModel) StateIDComponents() []any {
-	return []any{u.Name, u.Server}
+	return []any{&u.Name, &u.Server}
 }

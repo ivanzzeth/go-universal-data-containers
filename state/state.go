@@ -16,7 +16,9 @@ type State interface {
 	StateName() string
 	SetStateName(name string)
 
-	GetIDComposer() IDComposer
+	GetIDMarshaler() IDMarshaler
+	SetIDMarshaler(IDMarshaler)
+
 	StateIDComponents() []any
 
 	GetLocker() sync.Locker

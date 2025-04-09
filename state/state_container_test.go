@@ -39,7 +39,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 	assert.Equal(t, 0, user1.Age)
 	assert.Equal(t, 0, user1.Height)
 
-	user1StateID, err := user1.GetIDComposer().ComposeStateID(user1.StateIDComponents()...)
+	user1StateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)
 	}
