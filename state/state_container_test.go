@@ -17,11 +17,11 @@ func TestFinalizerStateContainer(t *testing.T) {
 
 	storageFactory := NewMemoryStorageFactory(registry, nil)
 	cacheSnapshot := NewBaseStorageSnapshot(storageFactory)
-	cache := NewMemoryStateStorage(registry, cacheSnapshot)
+	cache := NewMemoryStorage(registry, cacheSnapshot)
 	cacheSnapshot.SetStorage(cache)
 
 	persistSnapshot := NewBaseStorageSnapshot(storageFactory)
-	persist := NewMemoryStateStorage(registry, persistSnapshot)
+	persist := NewMemoryStorage(registry, persistSnapshot)
 	persistSnapshot.SetStorage(persist)
 
 	ticker := time.NewTicker(2 * time.Second).C

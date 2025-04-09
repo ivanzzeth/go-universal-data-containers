@@ -29,7 +29,7 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 			}
 		}
 		snapshot := f.newSnapshot(f)
-		storage := NewMemoryStateStorage(f.registry, snapshot)
+		storage := NewMemoryStorage(f.registry, snapshot)
 		return storage
 	}())
 
@@ -48,7 +48,7 @@ type MemoryStorage struct {
 	States map[string]map[string]State
 }
 
-func NewMemoryStateStorage(registry Registry, snapshot StorageSnapshot) *MemoryStorage {
+func NewMemoryStorage(registry Registry, snapshot StorageSnapshot) *MemoryStorage {
 	s := &MemoryStorage{
 		Registry: registry,
 		States:   make(map[string]map[string]State),
