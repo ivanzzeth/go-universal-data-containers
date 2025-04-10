@@ -14,12 +14,12 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	})
 
 	t.Run("LoadState if registered", func(t *testing.T) {
-		err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		user1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+		user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 		if err != nil {
 			t.Fatal(err)
@@ -29,18 +29,148 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		assert.Equal(t, ErrStateNotFound, err)
 	})
 
+	t.Run("Write once and clear", func(t *testing.T) {
+		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
+		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user1.Age = 1
+		err = storage.SaveStates(user1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Check all getter before clearing
+		stateNames, err := storage.GetStateNames()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 1, len(stateNames))
+		if len(stateNames) > 0 {
+			assert.Equal(t, user1.StateName(), stateNames[0])
+		}
+
+		stateIDs, err := storage.GetStateIDs(user1.StateName())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 1, len(stateIDs))
+
+		if len(stateIDs) > 0 {
+			assert.Equal(t, stateID, stateIDs[0])
+		}
+
+		allStates, err := storage.LoadAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 1, len(allStates))
+
+		// Clear
+
+		err = storage.ClearAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		stateNames, err = storage.GetStateNames()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 0, len(stateNames), "GetStateNames must be empty after clear")
+
+		stateIDs, err = storage.GetStateIDs(user1.StateName())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 0, len(stateIDs), "GetStateIDs must be empty after clear")
+
+		allStates, err = storage.LoadAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 0, len(allStates), "LoadAllStates must be empty after clear")
+	})
+
+	t.Run("Write, clear, and write", func(t *testing.T) {
+		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
+		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user1.Age = 1
+		user1.Height = 1
+		err = storage.SaveStates(user1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		err = storage.ClearAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		allStates, err := storage.LoadAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 0, len(allStates), "LoadAllStates must be empty after clear")
+
+		// Write twice
+		user1.Age = 2
+		err = storage.SaveStates(user1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		newU1, err := storage.LoadState(user1.StateName(), stateID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, "user1", newU1.(*TestUserModel).Name)
+		assert.Equal(t, "server", newU1.(*TestUserModel).Server)
+		assert.Equal(t, 2, newU1.(*TestUserModel).Age)
+		assert.Equal(t, 1, newU1.(*TestUserModel).Height)
+
+		err = storage.ClearAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	snapshot1, err := storage.SnapshotStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	t.Run("SnapshotStates", func(t *testing.T) {
-		err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		snapshot1, err := storage.SnapshotStates()
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+		u1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 		u1.Age = 1
 		u1.Height = 1
 
@@ -102,15 +232,72 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		assert.Equal(t, "server", newU1.(*TestUserModel).Server)
 		assert.Equal(t, 1, newU1.(*TestUserModel).Age)
 		assert.Equal(t, 1, newU1.(*TestUserModel).Height)
+
+		// Clear changes in the test
+		err = storage.RevertStatesToSnapshot(snapshot1)
+		if err != nil {
+			t.Fatal(err)
+		}
 	})
 
-	t.Run("Concurrent", func(t *testing.T) {
-		err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+	t.Run("Update multiple times", func(t *testing.T) {
+		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		user1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+		{
+			allStates, loadErr := storage.LoadAllStates()
+			if loadErr == nil {
+				t.Logf("LoadAllStates on start: err=%v states=%+v", err, allStates)
+			}
+		}
+
+		user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
+		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		count := 2
+		for i := 0; i < count; i++ {
+			// {
+			// 	allStates, loadErr := storage.LoadAllStates()
+			// 	if loadErr == nil {
+			// 		for _, state := range allStates {
+			// 			t.Logf("LoadAllStates on loop %d: err=%v state=%+v", i, err, state)
+			// 		}
+			// 	}
+			// }
+
+			user1.Age++
+			err := storage.SaveStates(user1)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// time.Sleep(1 * time.Second)
+		}
+
+		newUser1State, err := storage.LoadState(user1.StateName(), stateID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		newUser1, ok := newUser1State.(*TestUserModel)
+		if !ok {
+			t.Fatal("type of newUser1State is not *TestUserModel")
+		}
+
+		assert.Equal(t, count, newUser1.Age)
+	})
+
+	t.Run("Concurrent", func(t *testing.T) {
+		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 		if err != nil {
 			t.Fatal(err)
@@ -167,7 +354,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 	b.ReportAllocs()
 
-	err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -181,7 +368,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 		b.ResetTimer()
 		var table sync.Map
 		for i := 0; i < b.N; i++ {
-			u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+			u1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 			u1.Age = 1
 			u1.Height = 1
 			stateID, err := u1.GetIDMarshaler().MarshalStateID(u1.StateIDComponents()...)
@@ -197,7 +384,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
-			u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+			u1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 			u1.Age = 1
 			u1.Height = 1
 
@@ -214,7 +401,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 	}
 
 	b.Run("Test single load", func(b *testing.B) {
-		u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+		u1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 		u1.Age = 1
 		u1.Height = 1
 
@@ -245,7 +432,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 	b.Run("Test single revert for 10k states", func(b *testing.B) {
 		users := []State{}
 		for i := 0; i < 10_000; i++ {
-			u1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+			u1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 			u1.Age = 1
 			u1.Height = 1
 

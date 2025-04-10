@@ -8,7 +8,7 @@ import (
 
 func TestCacheAndPersistFinalizer(t *testing.T) {
 	registry := NewSimpleRegistry()
-	err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -24,6 +24,7 @@ func SetNestedField(obj interface{}, fieldPath string, newValue interface{}) err
 		var fieldName string
 		var field reflect.Value
 
+		// log.Println("fieldSpec", fieldSpec, "field", fmt.Sprintf("%+v", current.Field(i).Interface()))
 		// Check if next field should use tag lookup
 		if strings.HasPrefix(fieldSpec, "[") && strings.Contains(fieldSpec, "]") {
 			// Extract tag name and value

@@ -9,14 +9,14 @@ import (
 
 func SpecTestRegistry(t *testing.T, r Registry) {
 	t.Run("RegisterState", func(t *testing.T) {
-		err := r.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+		err := r.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
 			t.Error(err)
 		}
 	})
 
 	t.Run("New state after registering", func(t *testing.T) {
-		userTemplate := NewTestUserModel(&sync.Mutex{}, "", "")
+		userTemplate := MustNewTestUserModel(&sync.Mutex{}, "", "")
 		err := r.RegisterState(userTemplate)
 		if err != nil {
 			t.Error(err)

@@ -26,7 +26,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 
 	// Pattern1: LoadState then assert state as *TestUserModel
 	user1Name := "user1"
-	user1 := NewTestUserModel(&sync.Mutex{}, user1Name, "server")
+	user1 := MustNewTestUserModel(&sync.Mutex{}, user1Name, "server")
 	user1StateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)
@@ -52,7 +52,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	assert.Equal(t, 2, snapshot2)
 
 	// Pattern2:
-	newUser1 := NewTestUserModel(&sync.Mutex{}, user1Name, "server")
+	newUser1 := MustNewTestUserModel(&sync.Mutex{}, user1Name, "server")
 	err = newUser1.WithStateFinalizer(finalizer).Get()
 	if err != nil {
 		t.Fatal(err)

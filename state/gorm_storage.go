@@ -53,6 +53,25 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	return storeVal.(Storage), nil
 }
 
+type GormModel struct {
+	ID        string `gorm:"primarykey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
+}
+
+func (m *GormModel) FillID(state State) error {
+	if m.ID == "" {
+		stateID, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+		if err != nil {
+			return err
+		}
+		m.ID = stateID
+	}
+
+	return nil
+}
+
 // TODO: Unit test
 // DO NOT use this to create snapshot.
 type GORMStorage struct {
@@ -66,7 +85,7 @@ type GORMStorage struct {
 }
 
 type StateManagement struct {
-	gorm.Model
+	GormModel
 	StateName string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
 	StateID   string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
 	Partition string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
@@ -116,7 +135,7 @@ func (s *GORMStorage) GetStateNames() ([]string, error) {
 	states := []*StateManagement{}
 	time.Sleep(s.delay)
 
-	err := s.db.Where(&StateManagement{Partition: s.partition}).Distinct("name").Find(&states).Error
+	err := s.db.Where(&StateManagement{Partition: s.partition}).Distinct("state_name").Find(&states).Error
 	if err != nil {
 		return nil, err
 	}
@@ -280,9 +299,9 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 				err := setGormPrimaryKeyZeroValue(data)
 				if err != nil {
 					sqlErr = err
-					return nil
+					return tx
 				}
-				return tx.Clauses(conds).Save(data)
+				return tx.Clauses(conds).Where(data).Save(data)
 			case gormBatchOperationDelete:
 				return tx.Clauses(conds).Unscoped().Where(data).Delete(data)
 			default:
@@ -300,9 +319,10 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 	}
 
 	sql := strings.Join(sqlStatements, ";")
+	// log.Println("SQL:", sql)
 	return db.Exec(sql).Error
 }
 
 func setGormPrimaryKeyZeroValue(data any) error {
-	return utils.SetNestedField(data, "Model.[gorm]primarykey", nil)
+	return utils.SetNestedField(data, "GormModel.[gorm]primarykey", nil)
 }

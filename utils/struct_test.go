@@ -4,8 +4,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/utils"
+	"gorm.io/gorm"
 )
 
 func TestSetNestedField(t *testing.T) {
@@ -73,6 +75,19 @@ func TestSetNestedField(t *testing.T) {
 			wantErr:   false,
 			wantField: "Address.City",
 			wantValue: "Shanghai",
+		},
+		{
+			name: "Modify field using json tag",
+			inputStruct: &TestUserModel{
+				GormModel: GormModel{
+					ID: "test-id",
+				},
+			},
+			fieldPath: "GormModel.[gorm]primarykey",
+			newValue:  "new-test-id",
+			wantErr:   false,
+			wantField: "GormModel.ID",
+			wantValue: "new-test-id",
 		},
 		{
 			name: "Modify field using json tag",
@@ -161,4 +176,19 @@ type Person struct {
 type Address struct {
 	City string `json:"city" custom:"city_name"`
 	Zip  int    `json:"zip" custom:"zip_code"`
+}
+
+type TestUserModel struct {
+	GormModel
+	Name   string `gorm:"not null;uniqueIndex:idx_name_server"`
+	Server string `gorm:"not null;uniqueIndex:idx_name_server"`
+	Age    int
+	Height int
+}
+
+type GormModel struct {
+	ID        string `gorm:"primarykey"`
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	DeletedAt gorm.DeletedAt `gorm:"index"`
 }

@@ -10,7 +10,7 @@ import (
 
 func TestFinalizerStateContainer(t *testing.T) {
 	registry := NewSimpleRegistry()
-	err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 	finalizer := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)
 	defer finalizer.Close()
 
-	user1Container := NewStateContainer(finalizer, NewTestUserModel(&sync.Mutex{}, "user1", "server"))
+	user1Container := NewStateContainer(finalizer, MustNewTestUserModel(&sync.Mutex{}, "user1", "server"))
 	user1, err := user1Container.Get()
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 	user1.Unlock()
 
 	// Load user1 from cache
-	newUser1, err := NewStateContainer(finalizer, NewTestUserModel(&sync.Mutex{}, "user1", "server")).Get()
+	newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(&sync.Mutex{}, "user1", "server")).Get()
 	if err != nil {
 		t.Fatal(err)
 	}

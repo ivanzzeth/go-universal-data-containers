@@ -13,14 +13,14 @@ func TestJsonIDMarshaler(t *testing.T) {
 }
 
 func SpecTestIDMarshaler(t *testing.T, m IDMarshaler) {
-	user1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+	user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 
 	stateID, err := m.MarshalStateID(user1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	newUser1 := NewTestUserModel(&sync.Mutex{}, "", "")
+	newUser1 := MustNewTestUserModel(&sync.Mutex{}, "", "")
 	err = m.UnmarshalStateID(stateID, newUser1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)

@@ -2,10 +2,12 @@ package state
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestGORMStorage(t *testing.T) {
@@ -29,51 +31,52 @@ func TestGORMStorage(t *testing.T) {
 func TestSetGormPrimaryKeyZeroValue(t *testing.T) {
 	t.Run("Test embeded gorm.Model", func(t *testing.T) {
 		type testModel struct {
-			gorm.Model
+			GormModel
 			Name string
 		}
 
-		model := &testModel{Model: gorm.Model{ID: 100}, Name: "test"}
+		model := &testModel{GormModel: GormModel{ID: "100"}, Name: "test"}
 		err := setGormPrimaryKeyZeroValue(model)
 		assert.Equal(t, nil, err)
-		assert.Equal(t, uint(0), model.ID)
+		assert.Equal(t, "", model.ID)
 	})
 
 	t.Run("Test embeded *gorm.Model", func(t *testing.T) {
 		type testModel struct {
-			*gorm.Model
+			*GormModel
 			Name string
 		}
 
-		model := &testModel{Model: &gorm.Model{ID: 100}, Name: "test"}
+		model := &testModel{GormModel: &GormModel{ID: "100"}, Name: "test"}
 		err := setGormPrimaryKeyZeroValue(model)
 		assert.Equal(t, nil, err)
-		assert.Equal(t, uint(0), model.ID)
+		assert.Equal(t, "", model.ID)
 	})
 }
 
-// func BenchmarkGORMStorageWith2msLatency(b *testing.B) {
-// 	testDb, err := setupDB()
-// 	if err != nil {
-// 		b.Fatal(err)
-// 	}
+func BenchmarkGORMStorageWith2msLatency(b *testing.B) {
+	testDb, err := setupDB()
+	if err != nil {
+		b.Fatal(err)
+	}
 
-// 	registry := NewSimpleRegistry()
-// 	storageFactory := NewGORMStorageFactory(testDb, registry, nil)
-// 	snapshot := NewBaseStorageSnapshot(storageFactory)
+	registry := NewSimpleRegistry()
+	storageFactory := NewGORMStorageFactory(testDb, registry, nil)
+	snapshot := NewBaseStorageSnapshot(storageFactory)
 
-// 	storage, err := NewGORMStorage(testDb, "default", registry, snapshot)
-// 	if err != nil {
-// 		b.Fatal(err)
-// 	}
-// 	storage.setDelay(2 * time.Millisecond)
-// 	snapshot.SetStorage(storage)
-// 	SpecBenchmarkStorage(b, registry, storage)
-// }
+	storage, err := NewGORMStorage(testDb, "default", registry, snapshot)
+	if err != nil {
+		b.Fatal(err)
+	}
+	storage.setDelay(20 * time.Millisecond)
+	snapshot.SetStorage(storage)
+	SpecBenchmarkStorage(b, registry, storage)
+}
 
 func setupDB() (*gorm.DB, error) {
 	testDb, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
 		// DisableForeignKeyConstraintWhenMigrating: true,
+		Logger: logger.Discard,
 	})
 	if err != nil {
 		return nil, err
