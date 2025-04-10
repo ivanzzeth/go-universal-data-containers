@@ -13,12 +13,12 @@ var (
 type BaseState struct {
 	stateName   string
 	idMarshaler IDMarshaler
-	sync.Locker
+	locker      sync.Locker
 }
 
 func NewBaseState(locker sync.Locker) *BaseState {
 	return &BaseState{
-		Locker: locker,
+		locker: locker,
 	}
 }
 
@@ -47,9 +47,16 @@ func (s *BaseState) SetStateName(name string) {
 }
 
 func (s *BaseState) GetLocker() sync.Locker {
-	return s.Locker
+	return s.locker
 }
 
 func (s *BaseState) SetLocker(locker sync.Locker) {
-	s.Locker = locker
+	s.locker = locker
+}
+
+func (s *BaseState) Lock() {
+	s.locker.Lock()
+}
+func (s *BaseState) Unlock() {
+	s.locker.Unlock()
 }

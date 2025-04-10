@@ -16,11 +16,9 @@ func TestCacheAndPersistFinalizer(t *testing.T) {
 	storageFactory := NewMemoryStorageFactory(registry, nil)
 	cacheSnapshot := NewBaseStorageSnapshot(storageFactory)
 	cache := NewMemoryStorage(registry, cacheSnapshot)
-	cacheSnapshot.SetStorage(cache)
 
 	persistSnapshot := NewBaseStorageSnapshot(storageFactory)
 	persist := NewMemoryStorage(registry, persistSnapshot)
-	persistSnapshot.SetStorage(persist)
 
 	ticker := time.NewTicker(2 * time.Second).C
 	f := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)

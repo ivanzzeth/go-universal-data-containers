@@ -14,7 +14,7 @@ type BaseStorageSnapshot struct {
 	storage        Storage
 	storageFactory StorageFactory
 	snapshotID     int
-	snapshots      map[int]Storage
+	snapshots      map[int]Storage // TODO: DO NOT store it in memory
 }
 
 func NewBaseStorageSnapshot(storageFactory StorageFactory) *BaseStorageSnapshot {

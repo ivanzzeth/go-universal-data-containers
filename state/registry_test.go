@@ -15,7 +15,7 @@ func SpecTestRegistry(t *testing.T, r Registry) {
 		}
 	})
 
-	t.Run("LoadState", func(t *testing.T) {
+	t.Run("New state after registering", func(t *testing.T) {
 		userTemplate := NewTestUserModel(&sync.Mutex{}, "", "")
 		err := r.RegisterState(userTemplate)
 		if err != nil {
@@ -37,5 +37,11 @@ func SpecTestRegistry(t *testing.T, r Registry) {
 		assert.Equal(t, "", user.Name)
 		assert.Equal(t, 0, user.Age)
 		assert.Equal(t, 0, user.Height)
+
+		// call NewState twice
+		_, err = r.NewState(userTemplate.StateName())
+		if err != nil {
+			t.Error(err)
+		}
 	})
 }

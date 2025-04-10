@@ -1,7 +1,6 @@
 package state
 
 import (
-	"errors"
 	"sync"
 	"testing"
 
@@ -11,23 +10,29 @@ import (
 func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	t.Run("LoadState if not registered", func(t *testing.T) {
 		_, err := storage.LoadState("TestUserModel", "test")
-		assert.NotNil(t, err)
+		assert.Equal(t, ErrStateNotRegistered, err)
 	})
 
 	t.Run("LoadState if registered", func(t *testing.T) {
 		err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
-			t.Error(err)
+			t.Fatal(err)
 		}
 
-		_, err = storage.LoadState("user", "1")
-		assert.True(t, errors.Is(err, ErrStateNotFound))
+		user1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = storage.LoadState(user1.StateName(), stateID)
+		assert.Equal(t, ErrStateNotFound, err)
 	})
 
 	t.Run("SnapshotStates", func(t *testing.T) {
 		err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
-			t.Error(err)
+			t.Fatal(err)
 		}
 
 		snapshot1, err := storage.SnapshotStates()
@@ -49,7 +54,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			t.Fatal(err)
 		}
 
-		newU1, err := storage.LoadState("user", u1ID)
+		newU1, err := storage.LoadState(u1.StateName(), u1ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,25 +64,36 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		assert.Equal(t, 1, newU1.(*TestUserModel).Age)
 		assert.Equal(t, 1, newU1.(*TestUserModel).Height)
 
+		allStates, err := storage.LoadAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Equal(t, 1, len(allStates), "expected length of all states is 1")
+
 		snapshot2, err := storage.SnapshotStates()
 		if err != nil {
 			t.Fatal(err)
 		}
 
+		t.Logf("RevertStatesToSnapshot revert to snapshot1")
 		err = storage.RevertStatesToSnapshot(snapshot1)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		_, err = storage.LoadState("user", u1ID)
-		assert.True(t, errors.Is(err, ErrStateNotFound))
+		t.Logf("RevertStatesToSnapshot revert to snapshot1 ended")
+
+		_, err = storage.LoadState(u1.StateName(), u1ID)
+		assert.Equal(t, ErrStateNotFound, err)
+
+		t.Logf("RevertStatesToSnapshot revert to snapshot2")
 
 		err = storage.RevertStatesToSnapshot(snapshot2)
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		newU1, err = storage.LoadState("user", u1ID)
+		newU1, err = storage.LoadState(u1.StateName(), u1ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +171,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			_, err = storage.LoadState("user", stateID)
+			_, err = storage.LoadState(u1.StateName(), stateID)
 			if err != nil {
 				b.Fatal(err)
 			}

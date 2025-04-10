@@ -38,7 +38,7 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 }
 
 type MemoryStorage struct {
-	Registry
+	registry Registry
 
 	m sync.RWMutex
 	StorageSnapshot
@@ -50,7 +50,7 @@ type MemoryStorage struct {
 
 func NewMemoryStorage(registry Registry, snapshot StorageSnapshot) *MemoryStorage {
 	s := &MemoryStorage{
-		Registry: registry,
+		registry: registry,
 		States:   make(map[string]map[string]State),
 	}
 
@@ -114,6 +114,11 @@ func (s *MemoryStorage) LoadAllStates() ([]State, error) {
 }
 
 func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
+	_, err := s.registry.NewState(name)
+	if err != nil {
+		return nil, err
+	}
+
 	time.Sleep(s.delay)
 
 	s.m.RLock()

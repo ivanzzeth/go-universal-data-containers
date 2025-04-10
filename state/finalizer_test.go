@@ -69,8 +69,8 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 		t.Fatal(err)
 	}
 
-	_, err = finalizer.LoadState("user", user1StateID)
-	assert.Equal(t, err, ErrStateNotFound)
+	_, err = finalizer.LoadState(user1.StateName(), user1StateID)
+	assert.Equal(t, ErrStateNotFound, err)
 
 	// Revert to snapshot2
 	err = finalizer.RevertStatesToSnapshot(snapshot2)
@@ -84,11 +84,11 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newUserState1, err := finalizer.LoadState("user", user1StateID)
+	newUserState1, err := finalizer.LoadState(user1.StateName(), user1StateID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, "user", newUserState1.StateName())
+	assert.Equal(t, user1.StateName(), newUserState1.StateName())
 
 	newUser1, ok := newUserState1.(*TestUserModel)
 	if !ok {

@@ -15,7 +15,7 @@ func GetSimpleStateRegistry() *SimpleRegistry {
 }
 
 type SimpleRegistry struct {
-	States sync.Map
+	states sync.Map
 }
 
 func NewSimpleRegistry() *SimpleRegistry {
@@ -26,12 +26,13 @@ func (s *SimpleRegistry) RegisterState(state State) error {
 	if reflect.TypeOf(state).Kind() != reflect.Pointer {
 		return ErrStateNotPointer
 	}
-	s.States.Store(state.StateName(), state)
+	s.states.Store(state.StateName(), state)
+
 	return nil
 }
 
 func (s *SimpleRegistry) NewState(name string) (State, error) {
-	registered, ok := s.States.Load(name)
+	registered, ok := s.states.Load(name)
 	if !ok {
 		return nil, ErrStateNotRegistered
 	}

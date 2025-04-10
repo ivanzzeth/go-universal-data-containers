@@ -2,11 +2,16 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 )
 
 var (
 	_ IDMarshaler = (*JsonIDMarshaler)(nil)
+)
+
+var (
+	ErrStateIDAndFieldsMismatch = errors.New("state ID and fields mismatch")
 )
 
 type IDMarshaler interface {
@@ -38,6 +43,10 @@ func (c *JsonIDMarshaler) MarshalStateID(fields ...any) (string, error) {
 
 func (c *JsonIDMarshaler) UnmarshalStateID(ID string, fields ...any) error {
 	fieldsStrs := strings.Split(ID, c.separator)
+	if len(fieldsStrs) != len(fields) {
+		return ErrStateIDAndFieldsMismatch
+	}
+
 	for i, fieldStr := range fieldsStrs {
 		field := fields[i]
 		err := json.Unmarshal([]byte(fieldStr), field)
