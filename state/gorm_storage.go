@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 	"sync"
@@ -264,8 +263,6 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 
 	sqlStatements := []string{}
 	for _, data := range datas {
-		log.Println("execGormBatchOp", "for_range", data)
-
 		typ := reflect.TypeOf(data)
 		val := reflect.ValueOf(data)
 		if typ.Kind() == reflect.Array || typ.Kind() == reflect.Slice {
@@ -278,23 +275,17 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 		sql := db.ToSQL(func(tx *gorm.DB) *gorm.DB {
 			switch op {
 			case gormBatchOperationCreate:
-				log.Println("execGormBatchOp", "create_data", data)
 				return tx.Clauses(conds).Create(data)
 			case gormBatchOperationSave:
-				log.Println("execGormBatchOp", "save_data", data)
 				err := setGormPrimaryKeyZeroValue(data)
 				if err != nil {
 					sqlErr = err
 					return nil
 				}
-				log.Println("execGormBatchOp", "save_data", data)
 				return tx.Clauses(conds).Save(data)
 			case gormBatchOperationDelete:
-				log.Println("execGormBatchOp", "delete_data", data)
 				return tx.Clauses(conds).Unscoped().Where(data).Delete(data)
-				// return tx.Unscoped().Delete(data)
 			default:
-				log.Println("execGormBatchOp", "default_op", data)
 				return tx.Clauses(conds).Create(data)
 			}
 		})
@@ -309,7 +300,6 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 	}
 
 	sql := strings.Join(sqlStatements, ";")
-	log.Println("execGormBatchOp", "op", op, "sql", sql)
 	return db.Exec(sql).Error
 }
 

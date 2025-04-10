@@ -103,6 +103,65 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		assert.Equal(t, 1, newU1.(*TestUserModel).Age)
 		assert.Equal(t, 1, newU1.(*TestUserModel).Height)
 	})
+
+	t.Run("Concurrent", func(t *testing.T) {
+		err := registry.RegisterState(NewTestUserModel(&sync.Mutex{}, "", ""))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user1 := NewTestUserModel(&sync.Mutex{}, "user1", "server")
+		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		count := 100
+		errChan := make(chan error, count)
+		var wg sync.WaitGroup
+		for i := 0; i < count; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				user1.Lock()
+				defer user1.Unlock()
+				user1.Age++
+				err := storage.SaveStates(user1)
+				if err != nil {
+					errChan <- err
+
+					{
+						allStates, loadErr := storage.LoadAllStates()
+						if loadErr == nil {
+							for _, state := range allStates {
+								t.Logf("LoadAllStates on failed: err=%v state=%+v", err, state)
+							}
+						}
+					}
+				}
+			}()
+		}
+
+		wg.Wait()
+		close(errChan)
+		for err := range errChan {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		newUser1State, err := storage.LoadState(user1.StateName(), stateID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		newUser1, ok := newUser1State.(*TestUserModel)
+		if !ok {
+			t.Fatal("type of newUser1State is not *TestUserModel")
+		}
+
+		assert.Equal(t, count, newUser1.Age)
+	})
 }
 
 func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
