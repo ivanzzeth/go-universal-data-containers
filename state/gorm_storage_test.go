@@ -9,14 +9,7 @@ import (
 )
 
 func TestGORMStorage(t *testing.T) {
-	testDb, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
-		// DisableForeignKeyConstraintWhenMigrating: true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = testDb.AutoMigrate(&TestUserModel{})
+	testDb, err := setupDB()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,4 +50,39 @@ func TestSetGormPrimaryKeyZeroValue(t *testing.T) {
 		assert.Equal(t, nil, err)
 		assert.Equal(t, uint(0), model.ID)
 	})
+}
+
+// func BenchmarkGORMStorageWith2msLatency(b *testing.B) {
+// 	testDb, err := setupDB()
+// 	if err != nil {
+// 		b.Fatal(err)
+// 	}
+
+// 	registry := NewSimpleRegistry()
+// 	storageFactory := NewGORMStorageFactory(testDb, registry, nil)
+// 	snapshot := NewBaseStorageSnapshot(storageFactory)
+
+// 	storage, err := NewGORMStorage(testDb, "default", registry, snapshot)
+// 	if err != nil {
+// 		b.Fatal(err)
+// 	}
+// 	storage.setDelay(2 * time.Millisecond)
+// 	snapshot.SetStorage(storage)
+// 	SpecBenchmarkStorage(b, registry, storage)
+// }
+
+func setupDB() (*gorm.DB, error) {
+	testDb, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
+		// DisableForeignKeyConstraintWhenMigrating: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = testDb.AutoMigrate(&TestUserModel{})
+	if err != nil {
+		return nil, err
+	}
+
+	return testDb, nil
 }

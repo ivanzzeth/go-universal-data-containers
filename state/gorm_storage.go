@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/utils"
 	"gorm.io/gorm"
@@ -56,7 +57,10 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 // TODO: Unit test
 // DO NOT use this to create snapshot.
 type GORMStorage struct {
-	db        *gorm.DB
+	db *gorm.DB
+	// Only used for simulating network latency
+	delay time.Duration
+
 	partition string
 	Registry
 	StorageSnapshot
@@ -88,8 +92,14 @@ func NewGORMStorage(db *gorm.DB, partition string, registry Registry, snapshot S
 	return s, nil
 }
 
+func (s *GORMStorage) setDelay(delay time.Duration) {
+	s.delay = delay
+}
+
 func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {
 	states := []*StateManagement{}
+
+	time.Sleep(s.delay)
 	err := s.db.Where(&StateManagement{StateName: name, Partition: s.partition}).Find(&states).Error
 	if err != nil {
 		return nil, err
@@ -105,6 +115,8 @@ func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {
 
 func (s *GORMStorage) GetStateNames() ([]string, error) {
 	states := []*StateManagement{}
+	time.Sleep(s.delay)
+
 	err := s.db.Where(&StateManagement{Partition: s.partition}).Distinct("name").Find(&states).Error
 	if err != nil {
 		return nil, err
@@ -120,6 +132,8 @@ func (s *GORMStorage) GetStateNames() ([]string, error) {
 
 func (s *GORMStorage) LoadAllStates() ([]State, error) {
 	stateManagements := []*StateManagement{}
+	time.Sleep(s.delay)
+
 	err := s.db.Where(&StateManagement{Partition: s.partition}).Find(&stateManagements).Error
 	if err != nil {
 		return nil, err
@@ -139,6 +153,7 @@ func (s *GORMStorage) LoadAllStates() ([]State, error) {
 			return nil, err
 		}
 
+		time.Sleep(s.delay)
 		err = s.db.Table(tableName).Where(state).First(state).Error
 		if err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -164,6 +179,7 @@ func (s *GORMStorage) LoadState(name string, id string) (State, error) {
 		return nil, err
 	}
 
+	time.Sleep(s.delay)
 	err = s.db.Table(name).Where(state).First(state).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -196,6 +212,7 @@ func (s *GORMStorage) SaveStates(states ...State) error {
 }
 
 func (s *GORMStorage) BatchSave(models ...any) error {
+	time.Sleep(s.delay)
 	return execGormBatchOp(s.db, gormBatchOperationSave, clause.OnConflict{UpdateAll: true}, models...)
 }
 
@@ -228,6 +245,7 @@ func (s *GORMStorage) ClearAllStates() error {
 }
 
 func (s *GORMStorage) BatchDelete(models ...any) error {
+	time.Sleep(s.delay)
 	return execGormBatchOp(s.db, gormBatchOperationDelete, clause.OnConflict{UpdateAll: true}, models...)
 }
 
@@ -270,7 +288,6 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 					return nil
 				}
 				log.Println("execGormBatchOp", "save_data", data)
-
 				return tx.Clauses(conds).Save(data)
 			case gormBatchOperationDelete:
 				log.Println("execGormBatchOp", "delete_data", data)
