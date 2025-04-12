@@ -4,6 +4,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 func TestCacheAndPersistFinalizer(t *testing.T) {
@@ -13,12 +15,12 @@ func TestCacheAndPersistFinalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	storageFactory := NewMemoryStorageFactory(registry, nil)
+	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
 	cacheSnapshot := NewBaseStorageSnapshot(storageFactory)
-	cache := NewMemoryStorage(registry, cacheSnapshot)
+	cache := NewMemoryStorage(&sync.Mutex{}, registry, cacheSnapshot)
 
 	persistSnapshot := NewBaseStorageSnapshot(storageFactory)
-	persist := NewMemoryStorage(registry, persistSnapshot)
+	persist := NewMemoryStorage(&sync.Mutex{}, registry, persistSnapshot)
 
 	ticker := time.NewTicker(2 * time.Second).C
 	f := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)

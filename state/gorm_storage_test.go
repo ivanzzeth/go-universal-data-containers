@@ -1,9 +1,11 @@
 package state
 
 import (
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/stretchr/testify/assert"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
@@ -17,10 +19,10 @@ func TestGORMStorage(t *testing.T) {
 	}
 
 	registry := NewSimpleRegistry()
-	storageFactory := NewMemoryStorageFactory(registry, nil)
+	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
 	snapshot := NewBaseStorageSnapshot(storageFactory)
 
-	storage, err := NewGORMStorage(testDb, "default", registry, snapshot)
+	storage, err := NewGORMStorage(&sync.Mutex{}, testDb, "default", registry, snapshot)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,10 +63,10 @@ func BenchmarkGORMStorageWith2msLatency(b *testing.B) {
 	}
 
 	registry := NewSimpleRegistry()
-	storageFactory := NewGORMStorageFactory(testDb, registry, nil)
+	storageFactory := NewGORMStorageFactory(testDb, registry, locker.NewMemoryLockerGenerator(), nil)
 	snapshot := NewBaseStorageSnapshot(storageFactory)
 
-	storage, err := NewGORMStorage(testDb, "default", registry, snapshot)
+	storage, err := NewGORMStorage(&sync.Mutex{}, testDb, "default", registry, snapshot)
 	if err != nil {
 		b.Fatal(err)
 	}

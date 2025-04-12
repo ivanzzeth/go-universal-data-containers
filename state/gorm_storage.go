@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/ivanzzeth/go-universal-data-containers/utils"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -18,38 +19,48 @@ var (
 )
 
 type GORMStorageFactory struct {
-	db          *gorm.DB
-	registry    Registry
+	db       *gorm.DB
+	registry Registry
+	locker.SyncLockerGenerator
 	newSnapshot func(storageFactory StorageFactory) StorageSnapshot
 	table       sync.Map
 }
 
-func NewGORMStorageFactory(db *gorm.DB, registry Registry, newSnapshot func(storageFactory StorageFactory) StorageSnapshot) *GORMStorageFactory {
-	return &GORMStorageFactory{db: db, registry: registry, newSnapshot: newSnapshot}
+func NewGORMStorageFactory(db *gorm.DB, registry Registry, lockerGenerator locker.SyncLockerGenerator, newSnapshot func(storageFactory StorageFactory) StorageSnapshot) *GORMStorageFactory {
+	return &GORMStorageFactory{db: db, registry: registry, SyncLockerGenerator: lockerGenerator, newSnapshot: newSnapshot}
 }
 
 func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	// fmt.Printf("GetOrCreateStorage: %v\n", name)
+	onceVal, _ := f.table.LoadOrStore(fmt.Sprintf("%v-once", name), &sync.Once{})
 
-	storeVal, _ := f.table.LoadOrStore(name, func() interface{} {
+	var err error
+	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
 				return NewBaseStorageSnapshot(f)
 			}
 		}
 		snapshot := f.newSnapshot(f)
-		storage, err := NewGORMStorage(f.db, name, f.registry, snapshot)
+		var locker sync.Locker
+		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
 		if err != nil {
-			return nil
+			return
 		}
-		return storage
-	}())
-
-	if storeVal == nil {
-		return nil, fmt.Errorf("failed to create GORM storage")
+		var storage Storage
+		storage, err = NewGORMStorage(locker, f.db, name, f.registry, snapshot)
+		f.table.LoadOrStore(name, storage)
+	})
+	if err != nil {
+		f.table.Delete(fmt.Sprintf("%v-once", name))
+		return nil, err
 	}
 
-	// fmt.Printf("GetOrCreateStorage storage: %v\n", reflect.TypeOf(storeVal))
+	storeVal, loaded := f.table.Load(name)
+	if !loaded {
+		return nil, ErrStorageNotFound
+	}
+
 	return storeVal.(Storage), nil
 }
 
@@ -75,7 +86,8 @@ func (m *GormModel) FillID(state State) error {
 // TODO: Unit test
 // DO NOT use this to create snapshot.
 type GORMStorage struct {
-	db *gorm.DB
+	locker sync.Locker
+	db     *gorm.DB
 	// Only used for simulating network latency
 	delay time.Duration
 
@@ -91,8 +103,9 @@ type StateManagement struct {
 	Partition string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
 }
 
-func NewGORMStorage(db *gorm.DB, partition string, registry Registry, snapshot StorageSnapshot) (*GORMStorage, error) {
+func NewGORMStorage(locker sync.Locker, db *gorm.DB, partition string, registry Registry, snapshot StorageSnapshot) (*GORMStorage, error) {
 	s := &GORMStorage{
+		locker:          locker,
 		db:              db,
 		partition:       partition,
 		Registry:        registry,
@@ -112,6 +125,14 @@ func NewGORMStorage(db *gorm.DB, partition string, registry Registry, snapshot S
 
 func (s *GORMStorage) setDelay(delay time.Duration) {
 	s.delay = delay
+}
+
+func (s *GORMStorage) Lock() {
+	s.locker.Lock()
+}
+
+func (s *GORMStorage) Unlock() {
+	s.locker.Unlock()
 }
 
 func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {

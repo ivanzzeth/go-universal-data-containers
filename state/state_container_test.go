@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,13 +16,13 @@ func TestFinalizerStateContainer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	storageFactory := NewMemoryStorageFactory(registry, nil)
+	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
 	cacheSnapshot := NewBaseStorageSnapshot(storageFactory)
-	cache := NewMemoryStorage(registry, cacheSnapshot)
+	cache := NewMemoryStorage(&sync.Mutex{}, registry, cacheSnapshot)
 	cacheSnapshot.SetStorage(cache)
 
 	persistSnapshot := NewBaseStorageSnapshot(storageFactory)
-	persist := NewMemoryStorage(registry, persistSnapshot)
+	persist := NewMemoryStorage(&sync.Mutex{}, registry, persistSnapshot)
 	persistSnapshot.SetStorage(persist)
 
 	ticker := time.NewTicker(2 * time.Second).C

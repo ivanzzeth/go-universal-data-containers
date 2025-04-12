@@ -2,7 +2,6 @@ package state
 
 import (
 	"fmt"
-	"sync"
 )
 
 var (
@@ -10,7 +9,6 @@ var (
 )
 
 type BaseStorageSnapshot struct {
-	m              sync.RWMutex
 	storage        Storage
 	storageFactory StorageFactory
 	snapshotID     int
@@ -30,8 +28,8 @@ func (s *BaseStorageSnapshot) SetStorage(storage Storage) {
 
 func (s *BaseStorageSnapshot) SnapshotStates() (snapshotID int, err error) {
 	// fmt.Printf("SnapshotStates\n")
-	s.m.Lock()
-	defer s.m.Unlock()
+	s.storage.Lock()
+	defer s.storage.Unlock()
 
 	// fmt.Printf("SnapshotStates LoadAllStates\n")
 	states, err := s.storage.LoadAllStates()
@@ -59,8 +57,8 @@ func (s *BaseStorageSnapshot) SnapshotStates() (snapshotID int, err error) {
 
 func (s *BaseStorageSnapshot) RevertStatesToSnapshot(snapshotID int) (err error) {
 	// fmt.Printf("RevertStatesToSnapshot\n")
-	s.m.Lock()
-	defer s.m.Unlock()
+	s.storage.Lock()
+	defer s.storage.Unlock()
 
 	// fmt.Printf("RevertStatesToSnapshot GetSnapshot\n")
 
@@ -93,8 +91,8 @@ func (s *BaseStorageSnapshot) RevertStatesToSnapshot(snapshotID int) (err error)
 }
 
 func (s *BaseStorageSnapshot) GetSnapshot(snapshotID int) (storage Storage, err error) {
-	s.m.RLock()
-	defer s.m.RUnlock()
+	s.storage.Lock()
+	defer s.storage.Unlock()
 
 	return s.getSnapshot(snapshotID)
 }
@@ -109,16 +107,16 @@ func (s *BaseStorageSnapshot) getSnapshot(snapshotID int) (storage Storage, err 
 }
 
 func (s *BaseStorageSnapshot) DeleteSnapshot(snapshotID int) (err error) {
-	s.m.Lock()
-	defer s.m.Unlock()
+	s.storage.Lock()
+	defer s.storage.Unlock()
 
 	delete(s.snapshots, snapshotID)
 	return nil
 }
 
 func (s *BaseStorageSnapshot) ClearSnapshots() (err error) {
-	s.m.Lock()
-	defer s.m.Unlock()
+	s.storage.Lock()
+	defer s.storage.Unlock()
 
 	s.snapshots = make(map[int]Storage)
 	return nil

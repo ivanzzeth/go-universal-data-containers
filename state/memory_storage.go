@@ -1,8 +1,11 @@
 package state
 
 import (
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -10,37 +13,53 @@ var (
 )
 
 type MemoryStorageFactory struct {
-	registry    Registry
+	registry Registry
+	locker.SyncLockerGenerator
 	newSnapshot func(storageFactory StorageFactory) StorageSnapshot
 	table       sync.Map
 }
 
-func NewMemoryStorageFactory(registry Registry, newSnapshot func(storageFactory StorageFactory) StorageSnapshot) *MemoryStorageFactory {
-	return &MemoryStorageFactory{registry: registry, newSnapshot: newSnapshot}
+func NewMemoryStorageFactory(registry Registry, lockerGenerator locker.SyncLockerGenerator, newSnapshot func(storageFactory StorageFactory) StorageSnapshot) *MemoryStorageFactory {
+	return &MemoryStorageFactory{registry: registry, SyncLockerGenerator: lockerGenerator, newSnapshot: newSnapshot}
 }
 
 func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	// fmt.Printf("GetOrCreateStorage: %v\n", name)
 
-	storeVal, _ := f.table.LoadOrStore(name, func() interface{} {
+	onceVal, _ := f.table.LoadOrStore(fmt.Sprintf("%v-once", name), &sync.Once{})
+
+	var err error
+	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
 				return NewBaseStorageSnapshot(f)
 			}
 		}
 		snapshot := f.newSnapshot(f)
-		storage := NewMemoryStorage(f.registry, snapshot)
-		return storage
-	}())
+		var locker sync.Locker
+		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
+		if err == nil {
+			storage := NewMemoryStorage(locker, f.registry, snapshot)
+			f.table.LoadOrStore(name, storage)
+		}
+	})
+	if err != nil {
+		f.table.Delete(fmt.Sprintf("%v-once", name))
+		return nil, err
+	}
 
-	// fmt.Printf("GetOrCreateStorage storage: %v\n", reflect.TypeOf(storeVal))
+	storeVal, loaded := f.table.Load(name)
+	if !loaded {
+		return nil, ErrStorageNotFound
+	}
+
 	return storeVal.(Storage), nil
 }
 
 type MemoryStorage struct {
 	registry Registry
 
-	m sync.RWMutex
+	locker sync.Locker
 	StorageSnapshot
 
 	// Only used for simulating network latency
@@ -48,8 +67,9 @@ type MemoryStorage struct {
 	States map[string]map[string]State
 }
 
-func NewMemoryStorage(registry Registry, snapshot StorageSnapshot) *MemoryStorage {
+func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSnapshot) *MemoryStorage {
 	s := &MemoryStorage{
+		locker:   locker,
 		registry: registry,
 		States:   make(map[string]map[string]State),
 	}
@@ -63,11 +83,16 @@ func (s *MemoryStorage) setDelay(delay time.Duration) {
 	s.delay = delay
 }
 
+func (s *MemoryStorage) Lock() {
+	s.locker.Lock()
+}
+
+func (s *MemoryStorage) Unlock() {
+	s.locker.Unlock()
+}
+
 func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
 	time.Sleep(s.delay)
-
-	s.m.RLock()
-	defer s.m.RUnlock()
 
 	table, ok := s.States[name]
 	if !ok {
@@ -86,9 +111,6 @@ func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
 func (s *MemoryStorage) GetStateNames() ([]string, error) {
 	time.Sleep(s.delay)
 
-	s.m.RLock()
-	defer s.m.RUnlock()
-
 	names := make([]string, 0, len(s.States))
 	for name := range s.States {
 		names = append(names, name)
@@ -99,9 +121,6 @@ func (s *MemoryStorage) GetStateNames() ([]string, error) {
 
 func (s *MemoryStorage) LoadAllStates() ([]State, error) {
 	time.Sleep(s.delay)
-
-	s.m.RLock()
-	defer s.m.RUnlock()
 
 	states := make([]State, 0, len(s.States))
 	for _, table := range s.States {
@@ -120,9 +139,6 @@ func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
 	}
 
 	time.Sleep(s.delay)
-
-	s.m.RLock()
-	defer s.m.RUnlock()
 
 	table, ok := s.States[name]
 	if !ok {
@@ -144,9 +160,6 @@ func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
 
 func (s *MemoryStorage) SaveStates(states ...State) error {
 	time.Sleep(s.delay)
-
-	s.m.Lock()
-	defer s.m.Unlock()
 
 	for _, state := range states {
 		if state == nil {
@@ -172,9 +185,6 @@ func (s *MemoryStorage) SaveStates(states ...State) error {
 
 func (s *MemoryStorage) ClearAllStates() error {
 	time.Sleep(s.delay)
-
-	s.m.Lock()
-	defer s.m.Unlock()
 
 	s.States = make(map[string]map[string]State)
 
