@@ -38,7 +38,7 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewBaseStorageSnapshot(f)
+				return NewSimpleStorageSnapshot(f)
 			}
 		}
 		snapshot := f.newSnapshot(f)

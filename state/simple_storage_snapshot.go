@@ -2,31 +2,35 @@ package state
 
 import (
 	"fmt"
+	"sync"
 )
 
 var (
-	_ StorageSnapshot = (*BaseStorageSnapshot)(nil)
+	_ StorageSnapshot = (*SimpleStorageSnapshot)(nil)
 )
 
-type BaseStorageSnapshot struct {
+type SimpleStorageSnapshot struct {
 	storage        Storage
+	setStorageOnce sync.Once
 	storageFactory StorageFactory
 	snapshotID     int
 	snapshots      map[int]Storage // TODO: DO NOT store it in memory
 }
 
-func NewBaseStorageSnapshot(storageFactory StorageFactory) *BaseStorageSnapshot {
-	return &BaseStorageSnapshot{
+func NewSimpleStorageSnapshot(storageFactory StorageFactory) *SimpleStorageSnapshot {
+	return &SimpleStorageSnapshot{
 		snapshots:      make(map[int]Storage),
 		storageFactory: storageFactory,
 	}
 }
 
-func (s *BaseStorageSnapshot) SetStorage(storage Storage) {
-	s.storage = storage
+func (s *SimpleStorageSnapshot) SetStorage(storage Storage) {
+	s.setStorageOnce.Do(func() {
+		s.storage = storage
+	})
 }
 
-func (s *BaseStorageSnapshot) SnapshotStates() (snapshotID int, err error) {
+func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID int, err error) {
 	// fmt.Printf("SnapshotStates\n")
 	s.storage.Lock()
 	defer s.storage.Unlock()
@@ -55,7 +59,7 @@ func (s *BaseStorageSnapshot) SnapshotStates() (snapshotID int, err error) {
 	return
 }
 
-func (s *BaseStorageSnapshot) RevertStatesToSnapshot(snapshotID int) (err error) {
+func (s *SimpleStorageSnapshot) RevertStatesToSnapshot(snapshotID int) (err error) {
 	// fmt.Printf("RevertStatesToSnapshot\n")
 	s.storage.Lock()
 	defer s.storage.Unlock()
@@ -90,14 +94,14 @@ func (s *BaseStorageSnapshot) RevertStatesToSnapshot(snapshotID int) (err error)
 	return nil
 }
 
-func (s *BaseStorageSnapshot) GetSnapshot(snapshotID int) (storage Storage, err error) {
+func (s *SimpleStorageSnapshot) GetSnapshot(snapshotID int) (storage Storage, err error) {
 	s.storage.Lock()
 	defer s.storage.Unlock()
 
 	return s.getSnapshot(snapshotID)
 }
 
-func (s *BaseStorageSnapshot) getSnapshot(snapshotID int) (storage Storage, err error) {
+func (s *SimpleStorageSnapshot) getSnapshot(snapshotID int) (storage Storage, err error) {
 	storage, ok := s.snapshots[snapshotID]
 	if !ok {
 		return nil, ErrSnapshotNotFound
@@ -106,7 +110,7 @@ func (s *BaseStorageSnapshot) getSnapshot(snapshotID int) (storage Storage, err 
 	return
 }
 
-func (s *BaseStorageSnapshot) DeleteSnapshot(snapshotID int) (err error) {
+func (s *SimpleStorageSnapshot) DeleteSnapshot(snapshotID int) (err error) {
 	s.storage.Lock()
 	defer s.storage.Unlock()
 
@@ -114,7 +118,7 @@ func (s *BaseStorageSnapshot) DeleteSnapshot(snapshotID int) (err error) {
 	return nil
 }
 
-func (s *BaseStorageSnapshot) ClearSnapshots() (err error) {
+func (s *SimpleStorageSnapshot) ClearSnapshots() (err error) {
 	s.storage.Lock()
 	defer s.storage.Unlock()
 

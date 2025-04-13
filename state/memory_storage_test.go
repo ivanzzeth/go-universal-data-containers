@@ -11,7 +11,7 @@ import (
 func TestMemoryStorage(t *testing.T) {
 	registry := NewSimpleRegistry()
 	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewBaseStorageSnapshot(storageFactory)
+	snapshot := NewSimpleStorageSnapshot(storageFactory)
 
 	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot)
 
@@ -21,7 +21,7 @@ func TestMemoryStorage(t *testing.T) {
 // func BenchmarkMemoryStorage(b *testing.B) {
 // 	registry := NewSimpleRegistry()
 // 	storageFactory := NewMemoryStorageFactory(registry, nil)
-// 	snapshot := NewBaseStorageSnapshot(storageFactory)
+// 	snapshot := NewSimpleStorageSnapshot(storageFactory)
 
 // 	storage := NewMemoryStateStorage(registry, snapshot)
 // 	snapshot.SetStorage(storage)
@@ -31,7 +31,7 @@ func TestMemoryStorage(t *testing.T) {
 func BenchmarkMemoryStorageWith2msLatency(b *testing.B) {
 	registry := NewSimpleRegistry()
 	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewBaseStorageSnapshot(storageFactory)
+	snapshot := NewSimpleStorageSnapshot(storageFactory)
 
 	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot)
 	storage.setDelay(2 * time.Millisecond)

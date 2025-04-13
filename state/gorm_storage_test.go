@@ -20,7 +20,7 @@ func TestGORMStorage(t *testing.T) {
 
 	registry := NewSimpleRegistry()
 	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewBaseStorageSnapshot(storageFactory)
+	snapshot := NewSimpleStorageSnapshot(storageFactory)
 
 	storage, err := NewGORMStorage(&sync.Mutex{}, testDb, "default", registry, snapshot)
 	if err != nil {
@@ -64,7 +64,7 @@ func BenchmarkGORMStorageWith2msLatency(b *testing.B) {
 
 	registry := NewSimpleRegistry()
 	storageFactory := NewGORMStorageFactory(testDb, registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewBaseStorageSnapshot(storageFactory)
+	snapshot := NewSimpleStorageSnapshot(storageFactory)
 
 	storage, err := NewGORMStorage(&sync.Mutex{}, testDb, "default", registry, snapshot)
 	if err != nil {
