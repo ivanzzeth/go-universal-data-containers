@@ -136,6 +136,11 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 
 		assert.Equal(t, 0, len(allStates), "LoadAllStates must be empty after clear")
 
+		// Load state using same key
+		newU1, err := storage.LoadState(user1.StateName(), stateID)
+		assert.Equal(t, ErrStateNotFound, err)
+		assert.Nil(t, newU1)
+
 		// Write twice
 		user1.Age = 2
 		err = storage.SaveStates(user1)
@@ -143,7 +148,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			t.Fatal(err)
 		}
 
-		newU1, err := storage.LoadState(user1.StateName(), stateID)
+		newU1, err = storage.LoadState(user1.StateName(), stateID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -157,6 +162,13 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		if err != nil {
 			t.Fatal(err)
 		}
+
+		allStates, err = storage.LoadAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 0, len(allStates), "LoadAllStates must be empty after clear")
 	})
 
 	snapshot1, err := storage.SnapshotStates()

@@ -56,7 +56,7 @@ func TestSetGormPrimaryKeyZeroValue(t *testing.T) {
 	})
 }
 
-func BenchmarkGORMStorageWith2msLatency(b *testing.B) {
+func BenchmarkGORMStorageWith20msLatency(b *testing.B) {
 	testDb, err := setupDB()
 	if err != nil {
 		b.Fatal(err)
@@ -71,7 +71,6 @@ func BenchmarkGORMStorageWith2msLatency(b *testing.B) {
 		b.Fatal(err)
 	}
 	storage.setDelay(20 * time.Millisecond)
-	snapshot.SetStorage(storage)
 	SpecBenchmarkStorage(b, registry, storage)
 }
 
