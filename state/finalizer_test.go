@@ -22,7 +22,6 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, 1, snapshot1)
 
 	// Pattern1: LoadState then assert state as *TestUserModel
 	user1Name := "user1"
@@ -49,7 +48,6 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.Equal(t, 2, snapshot2)
 
 	// Pattern2:
 	newUser1 := MustNewTestUserModel(&sync.Mutex{}, user1Name, "server")

@@ -35,9 +35,9 @@ type Storage interface {
 
 type StorageSnapshot interface {
 	SetStorage(storage Storage)
-	SnapshotStates() (snapshotID int, err error)
-	RevertStatesToSnapshot(snapshotID int) (err error)
-	GetSnapshot(snapshotID int) (storage Storage, err error)
-	DeleteSnapshot(snapshotID int) (err error)
+	SnapshotStates() (snapshotID string, err error)
+	RevertStatesToSnapshot(snapshotID string) (err error)
+	GetSnapshot(snapshotID string) (storage Storage, err error)
+	DeleteSnapshot(snapshotID string) (err error)
 	ClearSnapshots() (err error)
 }

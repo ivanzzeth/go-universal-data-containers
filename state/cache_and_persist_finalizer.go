@@ -70,7 +70,7 @@ func (s *CacheAndPersistFinalizer) SaveState(state State) error {
 	return s.cache.SaveStates(state)
 }
 
-func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID int) error {
+func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) error {
 	snapshot, err := s.StorageSnapshot.GetSnapshot(snapshotID)
 	if err != nil {
 		return err
