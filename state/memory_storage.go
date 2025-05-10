@@ -39,7 +39,7 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 		var locker sync.Locker
 		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
 		if err == nil {
-			storage := NewMemoryStorage(locker, f.registry, snapshot)
+			storage := NewMemoryStorage(locker, f.registry, snapshot, name)
 			f.table.LoadOrStore(name, storage)
 		}
 	})
@@ -62,15 +62,22 @@ type MemoryStorage struct {
 	locker sync.Locker
 	StorageSnapshot
 
+	name string
+
 	// Only used for simulating network latency
 	delay  time.Duration
 	States map[string]map[string]State
 }
 
-func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSnapshot) *MemoryStorage {
+func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSnapshot, name string) *MemoryStorage {
+	if name == "" {
+		name = "default"
+	}
+
 	s := &MemoryStorage{
 		locker:   locker,
 		registry: registry,
+		name:     name,
 		States:   make(map[string]map[string]State),
 	}
 
@@ -81,6 +88,14 @@ func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSna
 
 func (s *MemoryStorage) setDelay(delay time.Duration) {
 	s.delay = delay
+}
+
+func (s *MemoryStorage) StorageType() string {
+	return "memory"
+}
+
+func (s *MemoryStorage) StorageName() string {
+	return s.name
 }
 
 func (s *MemoryStorage) Lock() {

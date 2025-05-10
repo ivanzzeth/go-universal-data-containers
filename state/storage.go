@@ -24,6 +24,12 @@ type Storage interface {
 
 	StorageSnapshot
 
+	// Used for distinguishing different storages implementations.
+	StorageType() string
+
+	// Used for distinguishing different storages.
+	StorageName() string
+
 	LoadState(name string, id string) (State, error)
 	LoadAllStates() ([]State, error)
 	SaveStates(states ...State) error

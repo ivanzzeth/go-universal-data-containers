@@ -13,7 +13,7 @@ func TestMemoryStorage(t *testing.T) {
 	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
 	snapshot := NewSimpleStorageSnapshot(storageFactory)
 
-	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot)
+	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot, "")
 
 	SpecTestStorage(t, registry, storage)
 }
@@ -33,7 +33,7 @@ func BenchmarkMemoryStorageWith2msLatency(b *testing.B) {
 	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
 	snapshot := NewSimpleStorageSnapshot(storageFactory)
 
-	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot)
+	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot, "")
 	storage.setDelay(2 * time.Millisecond)
 	snapshot.SetStorage(storage)
 	SpecBenchmarkStorage(b, registry, storage)

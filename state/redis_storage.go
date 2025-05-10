@@ -103,6 +103,14 @@ func (s *RedisStorage) setDelay(delay time.Duration) {
 	s.delay = delay
 }
 
+func (s *RedisStorage) StorageType() string {
+	return "redis"
+}
+
+func (s *RedisStorage) StorageName() string {
+	return s.partition
+}
+
 func (s *RedisStorage) Lock() {
 	s.locker.Lock()
 }

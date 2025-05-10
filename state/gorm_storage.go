@@ -48,7 +48,7 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 			return
 		}
 		var storage Storage
-		storage, err = NewGORMStorage(locker, f.db, name, f.registry, snapshot)
+		storage, err = NewGORMStorage(locker, f.db, f.registry, snapshot, name)
 		f.table.LoadOrStore(name, storage)
 	})
 	if err != nil {
@@ -103,7 +103,11 @@ type StateManagement struct {
 	Partition string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
 }
 
-func NewGORMStorage(locker sync.Locker, db *gorm.DB, partition string, registry Registry, snapshot StorageSnapshot) (*GORMStorage, error) {
+func NewGORMStorage(locker sync.Locker, db *gorm.DB, registry Registry, snapshot StorageSnapshot, partition string) (*GORMStorage, error) {
+	if partition == "" {
+		partition = "default"
+	}
+
 	s := &GORMStorage{
 		locker:          locker,
 		db:              db,
@@ -125,6 +129,14 @@ func NewGORMStorage(locker sync.Locker, db *gorm.DB, partition string, registry 
 
 func (s *GORMStorage) setDelay(delay time.Duration) {
 	s.delay = delay
+}
+
+func (s *GORMStorage) StorageType() string {
+	return fmt.Sprintf("gorm-%s", s.db.Dialector.Name())
+}
+
+func (s *GORMStorage) StorageName() string {
+	return s.partition
 }
 
 func (s *GORMStorage) Lock() {
