@@ -17,11 +17,11 @@ func TestFinalizerStateContainer(t *testing.T) {
 	}
 
 	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	cacheSnapshot := NewSimpleStorageSnapshot(storageFactory)
+	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
 	cache := NewMemoryStorage(&sync.Mutex{}, registry, cacheSnapshot, "")
 	cacheSnapshot.SetStorageForSnapshot(cache)
 
-	persistSnapshot := NewSimpleStorageSnapshot(storageFactory)
+	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
 	persist := NewMemoryStorage(&sync.Mutex{}, registry, persistSnapshot, "")
 	persistSnapshot.SetStorageForSnapshot(persist)
 

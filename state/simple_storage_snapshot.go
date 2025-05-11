@@ -1,8 +1,10 @@
 package state
 
 import (
+	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -21,7 +23,7 @@ func MustNewSnapshotState(locker sync.Locker, id string) *SnapshotState {
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
 	state.SetStateName("snapshot_states")
-	state.SetIDMarshaler(NewJsonIDMarshaler("-"))
+	state.SetIDMarshaler(NewJsonIDMarshaler("_"))
 
 	m := &SnapshotState{BaseState: *state, GormModel: GormModel{ID: id}}
 
@@ -41,17 +43,20 @@ type SimpleStorageSnapshot struct {
 	storage        Storage
 	setStorageOnce sync.Once
 	storageFactory StorageFactory
+	registry       Registry
 }
 
-func NewSimpleStorageSnapshot(storageFactory StorageFactory) *SimpleStorageSnapshot {
+func NewSimpleStorageSnapshot(registry Registry, storageFactory StorageFactory) *SimpleStorageSnapshot {
 	return &SimpleStorageSnapshot{
 		storageFactory: storageFactory,
+		registry:       registry,
 	}
 }
 
 func (s *SimpleStorageSnapshot) SetStorageForSnapshot(storage Storage) {
 	s.setStorageOnce.Do(func() {
 		s.storage = storage
+		s.registry.RegisterState(MustNewSnapshotState(&sync.Mutex{}, ""))
 	})
 }
 
@@ -73,7 +78,7 @@ func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) 
 	// Generate random snapshotID
 	snapshotID = uuid.New().String()
 	// fmt.Printf("SnapshotStates GetOrCreateStorage\n")
-	storage, err := s.storageFactory.GetOrCreateStorage(fmt.Sprintf("snapshot-%s", snapshotID))
+	storage, err := s.createSnapshot(snapshotID)
 	if err != nil {
 		return "", err
 	}
@@ -130,7 +135,56 @@ func (s *SimpleStorageSnapshot) GetSnapshot(snapshotID string) (storage Storage,
 }
 
 func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage, err error) {
+	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
+	stateID, err := snapshot.GetIDMarshaler().MarshalStateID(snapshot.StateIDComponents()...)
+	if err != nil {
+		return nil, err
+	}
+
+	sm, err := s.getSnapshotManagementStorage()
+	if err != nil {
+		return
+	}
+
+	snapshotState, err := sm.LoadState(snapshot.StateName(), stateID)
+	if err != nil {
+		if errors.Is(err, ErrStateNotFound) {
+			return nil, ErrSnapshotNotFound
+		}
+
+		return nil, err
+	}
+
+	snapshot = snapshotState.(*SnapshotState)
+	_ = snapshot
+
 	storage, err = s.storageFactory.GetOrCreateStorage(fmt.Sprintf("snapshot-%v", snapshotID))
+
+	return
+}
+
+func (s *SimpleStorageSnapshot) createSnapshot(snapshotID string) (storage Storage, err error) {
+	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
+	snapshot.CreatedAt = time.Now()
+	snapshot.UpdatedAt = time.Now()
+
+	sm, err := s.getSnapshotManagementStorage()
+	if err != nil {
+		return
+	}
+
+	err = sm.SaveStates(snapshot)
+	if err != nil {
+		return
+	}
+
+	storage, err = s.storageFactory.GetOrCreateStorage(fmt.Sprintf("snapshot-%v", snapshotID))
+
+	return
+}
+
+func (s *SimpleStorageSnapshot) getSnapshotManagementStorage() (storage Storage, err error) {
+	storage, err = s.storageFactory.GetOrCreateStorage("snapshot-management")
 
 	return
 }
@@ -139,6 +193,10 @@ func (s *SimpleStorageSnapshot) DeleteSnapshot(snapshotID string) (err error) {
 	s.storage.Lock()
 	defer s.storage.Unlock()
 
+	return s.deleteSnapshot(snapshotID)
+}
+
+func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
 	storage, err := s.getSnapshot(snapshotID)
 	if err != nil {
 		return err
@@ -149,24 +207,47 @@ func (s *SimpleStorageSnapshot) DeleteSnapshot(snapshotID string) (err error) {
 		return err
 	}
 
-	return nil
+	sm, err := s.getSnapshotManagementStorage()
+	if err != nil {
+		return
+	}
+
+	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
+	err = sm.ClearStates(snapshot)
+	if err != nil {
+		return
+	}
+
+	return
 }
 
 func (s *SimpleStorageSnapshot) ClearSnapshots() (err error) {
 	s.storage.Lock()
 	defer s.storage.Unlock()
 
-	snapshotState := MustNewSnapshotState(&sync.Mutex{}, "")
-	snapshotIds, err := s.storage.GetStateIDs(snapshotState.StateName())
+	sm, err := s.getSnapshotManagementStorage()
 	if err != nil {
-		return err
+		return
 	}
 
-	for _, snapshotId := range snapshotIds {
-		err = s.DeleteSnapshot(snapshotId)
+	snapshotState := MustNewSnapshotState(&sync.Mutex{}, "")
+	snapshotStateIds, err := sm.GetStateIDs(snapshotState.StateName())
+	if err != nil {
+		return
+	}
+
+	for _, snapshotStateId := range snapshotStateIds {
+		snapshot := MustNewSnapshotState(&sync.Mutex{}, "")
+		err = NewJsonIDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.ID)
+		if err != nil {
+			return
+		}
+
+		err = s.deleteSnapshot(snapshot.ID)
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }

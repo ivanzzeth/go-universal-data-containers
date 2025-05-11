@@ -14,7 +14,7 @@ func TestRedisStorage(t *testing.T) {
 	rdb := setupRdb(t)
 	registry := NewSimpleRegistry()
 	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewSimpleStorageSnapshot(storageFactory)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
 
 	storage, err := NewRedisStorage(&sync.Mutex{}, rdb, registry, snapshot, "default")
 	if err != nil {
@@ -29,7 +29,7 @@ func BenchmarkRedisStorageWith2msLatency(b *testing.B) {
 
 	registry := NewSimpleRegistry()
 	storageFactory := NewRedisStorageFactory(rdb, registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewSimpleStorageSnapshot(storageFactory)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
 
 	storage, err := NewRedisStorage(&sync.Mutex{}, rdb, registry, snapshot, "default")
 	if err != nil {

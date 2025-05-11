@@ -18,6 +18,7 @@ const (
 	StateStorageOperationLoadState      StateStorageOperation = "LoadState"
 	StateStorageOperationLoadAllStates  StateStorageOperation = "LoadAllStates"
 	StateStorageOperationSaveStates     StateStorageOperation = "SaveStates"
+	StateStorageOperationClearStates    StateStorageOperation = "ClearStates"
 	StateStorageOperationClearAllStates StateStorageOperation = "ClearAllStates"
 	StateStorageOperationGetStateIDs    StateStorageOperation = "GetStateIDs"
 	StateStorageOperationGetStateNames  StateStorageOperation = "GetStateNames"

@@ -32,7 +32,7 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f)
+				return NewSimpleStorageSnapshot(f.registry, f)
 			}
 		}
 		snapshot := f.newSnapshot(f)
@@ -196,6 +196,29 @@ func (s *MemoryStorage) SaveStates(states ...State) error {
 		}
 
 		table[stateId] = state
+	}
+
+	return nil
+}
+
+func (s *MemoryStorage) ClearStates(states ...State) error {
+	time.Sleep(s.delay)
+
+	for _, state := range states {
+		if state == nil {
+			continue
+		}
+
+		table, ok := s.States[state.StateName()]
+		if ok {
+			stateId, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+			if err != nil {
+				return err
+			}
+
+			delete(table, stateId)
+			fmt.Printf("Delete state: %s -> %s\n", state.StateName(), stateId)
+		}
 	}
 
 	return nil

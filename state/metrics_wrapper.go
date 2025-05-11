@@ -109,6 +109,30 @@ func (s StorageWithMetrics) SaveStates(states ...State) (err error) {
 	return s.storage.SaveStates(states...)
 }
 
+func (s StorageWithMetrics) ClearStates(states ...State) (err error) {
+	metrics.MetricStateStorageOperationTotal.WithLabelValues(
+		s.storage.StorageType(),
+		string(metrics.StateStorageOperationClearStates),
+	).Inc()
+
+	startTime := time.Now()
+	defer func() {
+		metrics.MetricStateStorageOperationDuration.WithLabelValues(
+			s.storage.StorageType(),
+			string(metrics.StateStorageOperationClearStates),
+		).Observe(time.Since(startTime).Seconds())
+
+		if err != nil {
+			metrics.MetricStateStorageOperationErrorTotal.WithLabelValues(
+				s.storage.StorageType(),
+				string(metrics.StateStorageOperationClearStates),
+			).Inc()
+		}
+	}()
+
+	return s.storage.ClearStates(states...)
+}
+
 func (s StorageWithMetrics) ClearAllStates() (err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),

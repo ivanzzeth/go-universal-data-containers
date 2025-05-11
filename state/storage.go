@@ -33,6 +33,7 @@ type Storage interface {
 	LoadState(name string, id string) (State, error)
 	LoadAllStates() ([]State, error)
 	SaveStates(states ...State) error
+	ClearStates(states ...State) error
 	ClearAllStates() error
 
 	GetStateIDs(name string) ([]string, error)

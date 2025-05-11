@@ -363,6 +363,16 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 
 		assert.Equal(t, count, newUser1.Age)
 	})
+
+	t.Run("ClearSnapshot", func(t *testing.T) {
+		err := storage.ClearSnapshots()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		_, err = storage.GetSnapshot(snapshot1)
+		assert.Equal(t, ErrSnapshotNotFound, err)
+	})
 }
 
 func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {

@@ -37,7 +37,7 @@ func (f *RedisStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f)
+				return NewSimpleStorageSnapshot(f.registry, f)
 			}
 		}
 		snapshot := f.newSnapshot(f)
@@ -281,6 +281,21 @@ func (s *RedisStorage) SaveStates(states ...State) error {
 	// fmt.Printf("SaveStates after: names=%v\n", names)
 
 	return nil
+}
+
+func (s *RedisStorage) ClearStates(states ...State) (err error) {
+	for _, state := range states {
+		id, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+		if err != nil {
+			return err
+		}
+		_, err = s.redisClient.HDel(context.Background(), s.getStateKey(state.StateName()), id).Result()
+		if err != nil {
+			return fmt.Errorf("clear all states failed: %v", err)
+		}
+	}
+
+	return
 }
 
 func (s *RedisStorage) ClearAllStates() error {

@@ -38,7 +38,7 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f)
+				return NewSimpleStorageSnapshot(f.registry, f)
 			}
 		}
 		snapshot := f.newSnapshot(f)
@@ -269,15 +269,7 @@ func (s *GORMStorage) BatchSave(models ...any) error {
 	return execGormBatchOp(s.db, gormBatchOperationSave, clause.OnConflict{UpdateAll: true}, models...)
 }
 
-func (s *GORMStorage) ClearAllStates() error {
-	states, err := s.LoadAllStates()
-	if err != nil {
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return err
-		}
-		return nil
-	}
-
+func (s *GORMStorage) ClearStates(states ...State) error {
 	models := make([]any, 0, len(states))
 	for _, state := range states {
 		models = append(models, state)
@@ -295,6 +287,18 @@ func (s *GORMStorage) ClearAllStates() error {
 	}
 
 	return s.BatchDelete(models...)
+}
+
+func (s *GORMStorage) ClearAllStates() error {
+	states, err := s.LoadAllStates()
+	if err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		return nil
+	}
+
+	return s.ClearStates(states...)
 }
 
 func (s *GORMStorage) BatchDelete(models ...any) error {
