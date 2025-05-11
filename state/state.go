@@ -25,3 +25,12 @@ type State interface {
 	SetLocker(locker sync.Locker)
 	sync.Locker
 }
+
+func GetStateID(state State) (stateID string, err error) {
+	stateID, err = state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+	if err != nil {
+		return
+	}
+
+	return
+}

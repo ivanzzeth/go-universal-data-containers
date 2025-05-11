@@ -3,6 +3,7 @@ package state
 import (
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 	"sync"
@@ -75,7 +76,7 @@ type GormModel struct {
 
 func (m *GormModel) FillID(state State) error {
 	if m.ID == "" {
-		stateID, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+		stateID, err := GetStateID(state)
 		if err != nil {
 			return err
 		}
@@ -83,6 +84,10 @@ func (m *GormModel) FillID(state State) error {
 	}
 
 	return nil
+}
+
+type idFiller interface {
+	FillID(state State) error
 }
 
 // TODO: Unit test
@@ -100,9 +105,33 @@ type GORMStorage struct {
 
 type StateManagement struct {
 	GormModel
-	StateName string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
-	StateID   string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
-	Partition string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
+	BaseState
+
+	StateNamee string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
+	StateID    string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
+	Partition  string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
+}
+
+func MustNewStateManagement(locker sync.Locker, stateName, stateID, partition string) *StateManagement {
+	state := NewBaseState(locker)
+	// Make sure that it's compatible for all storages you want to use
+	// For GORMStorage and MemoryStorage, it is ok.
+	state.SetStateName("state_managements")
+	// state.SetIDMarshaler(NewBase64IDMarshaler("_"))
+	state.SetIDMarshaler(NewJsonIDMarshaler("_"))
+
+	m := &StateManagement{BaseState: *state, GormModel: GormModel{}, StateNamee: stateName, StateID: stateID, Partition: partition}
+
+	err := m.FillID(m)
+	if err != nil {
+		panic(fmt.Errorf("invalid stateID: %v", err))
+	}
+
+	return m
+}
+
+func (u *StateManagement) StateIDComponents() []any {
+	return []any{&u.stateName, &u.StateID, &u.Partition}
 }
 
 func NewGORMStorage(locker sync.Locker, db *gorm.DB, registry Registry, snapshot StorageSnapshot, partition string) (*GORMStorage, error) {
@@ -153,7 +182,7 @@ func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {
 	states := []*StateManagement{}
 
 	time.Sleep(s.delay)
-	err := s.db.Where(&StateManagement{StateName: name, Partition: s.partition}).Find(&states).Error
+	err := s.db.Where(&StateManagement{StateNamee: name, Partition: s.partition}).Find(&states).Error
 	if err != nil {
 		return nil, err
 	}
@@ -170,14 +199,14 @@ func (s *GORMStorage) GetStateNames() ([]string, error) {
 	states := []*StateManagement{}
 	time.Sleep(s.delay)
 
-	err := s.db.Where(&StateManagement{Partition: s.partition}).Distinct("state_name").Find(&states).Error
+	err := s.db.Where(&StateManagement{Partition: s.partition}).Distinct("state_namee").Find(&states).Error
 	if err != nil {
 		return nil, err
 	}
 
 	res := []string{}
 	for _, state := range states {
-		res = append(res, state.StateName)
+		res = append(res, state.StateNamee)
 	}
 
 	return res, nil
@@ -194,7 +223,9 @@ func (s *GORMStorage) LoadAllStates() ([]State, error) {
 
 	states := []State{}
 	for _, sm := range stateManagements {
-		tableName := sm.StateName
+		fmt.Printf("LoadAllStates: sm: %+v\n", sm)
+
+		tableName := sm.StateNamee
 		stateID := sm.StateID
 		state, err := s.NewState(tableName)
 		if err != nil {
@@ -247,18 +278,25 @@ func (s *GORMStorage) LoadState(name string, id string) (State, error) {
 func (s *GORMStorage) SaveStates(states ...State) error {
 	models := make([]any, 0, 2*len(states))
 	for _, state := range states {
-		models = append(models, state)
-
-		stateID, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+		stateID, err := GetStateID(state)
 		if err != nil {
 			return err
 		}
 
-		models = append(models, &StateManagement{
-			StateName: state.StateName(),
-			StateID:   stateID,
-			Partition: s.partition,
-		})
+		if filler, ok := state.(idFiller); ok {
+			err = filler.FillID(state)
+			if err != nil {
+				return err
+			}
+		}
+
+		models = append(models, state)
+
+		sm := MustNewStateManagement(&sync.Mutex{}, state.StateName(), stateID, s.partition)
+
+		models = append(models, sm)
+
+		fmt.Printf("SaveStates: state: %+v, sm: %+v\n", state, sm)
 	}
 
 	return s.BatchSave(models...)
@@ -266,7 +304,7 @@ func (s *GORMStorage) SaveStates(states ...State) error {
 
 func (s *GORMStorage) BatchSave(models ...any) error {
 	time.Sleep(s.delay)
-	return execGormBatchOp(s.db, gormBatchOperationSave, clause.OnConflict{UpdateAll: true}, models...)
+	return execGormBatchOp(s.db, gormBatchOperationCreate, clause.OnConflict{UpdateAll: true}, models...)
 }
 
 func (s *GORMStorage) ClearStates(states ...State) error {
@@ -280,9 +318,9 @@ func (s *GORMStorage) ClearStates(states ...State) error {
 		}
 
 		models = append(models, &StateManagement{
-			StateName: state.StateName(),
-			StateID:   stateID,
-			Partition: s.partition,
+			StateNamee: state.StateName(),
+			StateID:    stateID,
+			Partition:  s.partition,
 		})
 	}
 
@@ -290,6 +328,28 @@ func (s *GORMStorage) ClearStates(states ...State) error {
 }
 
 func (s *GORMStorage) ClearAllStates() error {
+	// TODO: Optimize this.
+	// stateNames, err := s.GetStateNames()
+	// if err != nil {
+	// 	return err
+	// }
+
+	// models := make([]any, 0, len(stateNames))
+
+	// for _, stateName := range stateNames {
+	// 	state, err := s.NewState(stateName)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+
+	// 	// state
+	// 	models = append(models)
+	// }
+
+	// return s.BatchDelete(
+	// 	&StateManagement{Partition: s.partition},
+	// )
+
 	states, err := s.LoadAllStates()
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -335,11 +395,11 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 			case gormBatchOperationCreate:
 				return tx.Clauses(conds).Create(data)
 			case gormBatchOperationSave:
-				err := setGormPrimaryKeyZeroValue(data)
-				if err != nil {
-					sqlErr = err
-					return tx
-				}
+				// err := setGormPrimaryKeyZeroValue(data)
+				// if err != nil {
+				// 	sqlErr = err
+				// 	return tx
+				// }
 				return tx.Clauses(conds).Where(data).Save(data)
 			case gormBatchOperationDelete:
 				return tx.Clauses(conds).Unscoped().Where(data).Delete(data)
@@ -358,7 +418,7 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 	}
 
 	sql := strings.Join(sqlStatements, ";")
-	// log.Println("SQL:", sql)
+	log.Println("SQL:", sql)
 	return db.Exec(sql).Error
 }
 

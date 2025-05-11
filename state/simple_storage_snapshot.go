@@ -157,12 +157,12 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 
 	for _, snapshotStateId := range snapshotStateIds {
 		snapshot := MustNewSnapshotState(&sync.Mutex{}, "")
-		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.ID)
+		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.SnapshotID)
 		if err != nil {
 			return
 		}
 
-		snapshotIDs = append(snapshotIDs, snapshot.ID)
+		snapshotIDs = append(snapshotIDs, snapshot.SnapshotID)
 	}
 
 	return
@@ -170,7 +170,7 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 
 func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage, err error) {
 	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
-	stateID, err := snapshot.GetIDMarshaler().MarshalStateID(snapshot.StateIDComponents()...)
+	stateID, err := GetStateID(snapshot)
 	if err != nil {
 		return nil, err
 	}

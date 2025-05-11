@@ -54,7 +54,8 @@ func TestFinalizerStateContainer(t *testing.T) {
 	user1.Height = 180
 
 	// Then save changes in memory into cache
-	err = user1Container.Wrap(user1).Save()
+	err = user1Container.Save()
+	// err = user1Container.Wrap(user1).Save()
 	if err != nil {
 		t.Fatal(err)
 	}

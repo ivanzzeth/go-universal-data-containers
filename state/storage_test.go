@@ -176,6 +176,14 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		t.Fatal(err)
 	}
 	t.Logf("snapshot1: %v", snapshot1)
+	snapshotIds, err := storage.GetSnapshotIDs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.Equal(t, 1, len(snapshotIds))
+	assert.Equal(t, snapshot1, snapshotIds[0])
+
+	var snapshot2 string
 
 	t.Run("SnapshotStates", func(t *testing.T) {
 		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
@@ -213,11 +221,18 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		}
 		assert.Equal(t, 1, len(allStates), "expected length of all states is 1")
 
-		snapshot2, err := storage.SnapshotStates()
+		snapshot2, err = storage.SnapshotStates()
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Logf("snapshot2: %v", snapshot2)
+		snapshotIds, err := storage.GetSnapshotIDs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Equal(t, 2, len(snapshotIds))
+		assert.Equal(t, snapshot1, snapshotIds[0])
+		assert.Equal(t, snapshot2, snapshotIds[1])
 
 		t.Logf("RevertStatesToSnapshot revert to snapshot1")
 		err = storage.RevertStatesToSnapshot(snapshot1)
@@ -226,6 +241,14 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		}
 
 		t.Logf("RevertStatesToSnapshot revert to snapshot1 ended")
+
+		snapshotIds, err = storage.GetSnapshotIDs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Equal(t, 2, len(snapshotIds), "Remain snapshots after reverting")
+		assert.Contains(t, snapshotIds, snapshot1)
+		assert.Contains(t, snapshotIds, snapshot2)
 
 		_, err = storage.LoadState(u1.StateName(), u1ID)
 		assert.Equal(t, ErrStateNotFound, err)
@@ -237,6 +260,14 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			t.Fatal(err)
 		}
 
+		snapshotIds, err = storage.GetSnapshotIDs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Equal(t, 2, len(snapshotIds), "Remain snapshots after reverting")
+		assert.Contains(t, snapshotIds, snapshot1)
+		assert.Contains(t, snapshotIds, snapshot2)
+
 		newU1, err = storage.LoadState(u1.StateName(), u1ID)
 		if err != nil {
 			t.Fatal(err)
@@ -246,15 +277,59 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		assert.Equal(t, "server", newU1.(*TestUserModel).Server)
 		assert.Equal(t, 1, newU1.(*TestUserModel).Age)
 		assert.Equal(t, 1, newU1.(*TestUserModel).Height)
+	})
 
-		// Clear changes in the test
+	t.Run("Multiple states", func(t *testing.T) {
+		user2 := MustNewTestUserModel(&sync.Mutex{}, "user2", "server")
+		user3 := MustNewTestUserModel(&sync.Mutex{}, "user3", "server2")
+
+		user2.Height = 120
+
+		user3.Age = 13
+
+		err := storage.SaveStates(user2, user3)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		allStates, err := storage.LoadAllStates()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 3, len(allStates))
+
+		user2StateID, err := GetStateID(user2)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user3StateID, err := GetStateID(user3)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user2State, err := storage.LoadState(user2.StateName(), user2StateID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		user3State, err := storage.LoadState(user3.StateName(), user3StateID)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 120, user2State.(*TestUserModel).Height)
+		assert.Equal(t, 13, user3State.(*TestUserModel).Age)
+	})
+
+	t.Run("Update multiple times", func(t *testing.T) {
+		// Clear changes before
 		err = storage.RevertStatesToSnapshot(snapshot1)
 		if err != nil {
 			t.Fatal(err)
 		}
-	})
 
-	t.Run("Update multiple times", func(t *testing.T) {
 		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
 		if err != nil {
 			t.Fatal(err)
@@ -268,21 +343,21 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		}
 
 		user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
-		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
+		stateID, err := GetStateID(user1)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		count := 2
 		for i := 0; i < count; i++ {
-			// {
-			// 	allStates, loadErr := storage.LoadAllStates()
-			// 	if loadErr == nil {
-			// 		for _, state := range allStates {
-			// 			t.Logf("LoadAllStates on loop %d: err=%v state=%+v", i, err, state)
-			// 		}
-			// 	}
-			// }
+			{
+				allStates, loadErr := storage.LoadAllStates()
+				if loadErr == nil {
+					for _, state := range allStates {
+						t.Logf("LoadAllStates on loop %d: err=%v state=%+v", i, err, state)
+					}
+				}
+			}
 
 			user1.Age++
 			err := storage.SaveStates(user1)
@@ -365,7 +440,17 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	})
 
 	t.Run("ClearSnapshot", func(t *testing.T) {
-		err := storage.ClearSnapshots()
+		snapshotIds, err := storage.GetSnapshotIDs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assert.Equal(t, 2, len(snapshotIds))
+
+		t.Logf("snapshots: %v", snapshotIds)
+		t.Logf("snapshot1: %v", snapshot1)
+		t.Logf("snapshot2: %v", snapshot2)
+
+		err = storage.ClearSnapshots()
 		if err != nil {
 			t.Fatal(err)
 		}
