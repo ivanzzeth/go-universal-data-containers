@@ -225,6 +225,10 @@ func (s StorageWithMetrics) GetSnapshot(snapshotID string) (storage Storage, err
 	return s.snapshot.GetSnapshot(snapshotID)
 }
 
+func (s StorageWithMetrics) GetSnapshotIDs() (snapshotIDs []string, err error) {
+	return s.snapshot.GetSnapshotIDs()
+}
+
 func (s StorageWithMetrics) DeleteSnapshot(snapshotID string) (err error) {
 	return s.snapshot.DeleteSnapshot(snapshotID)
 }
@@ -321,6 +325,30 @@ func (s StorageSnapshotWithMetrics) GetSnapshot(snapshotID string) (storage Stor
 	}()
 
 	return s.snapshot.GetSnapshot(snapshotID)
+}
+
+func (s StorageSnapshotWithMetrics) GetSnapshotIDs() (snapshotIDs []string, err error) {
+	metrics.MetricStateSnapshotOperationTotal.WithLabelValues(
+		s.snapshot.GetStorageForSnapshot().StorageType(),
+		string(metrics.StateSnapshotOperationGetSnapshotIDs),
+	).Inc()
+
+	startTime := time.Now()
+	defer func() {
+		metrics.MetricStateSnapshotOperationDuration.WithLabelValues(
+			s.snapshot.GetStorageForSnapshot().StorageType(),
+			string(metrics.StateSnapshotOperationGetSnapshotIDs),
+		).Observe(time.Since(startTime).Seconds())
+
+		if err != nil {
+			metrics.MetricStateSnapshotOperationErrorTotal.WithLabelValues(
+				s.snapshot.GetStorageForSnapshot().StorageType(),
+				string(metrics.StateSnapshotOperationGetSnapshotIDs),
+			).Inc()
+		}
+	}()
+
+	return s.snapshot.GetSnapshotIDs()
 }
 
 func (s StorageSnapshotWithMetrics) DeleteSnapshot(snapshotID string) (err error) {

@@ -30,6 +30,7 @@ const (
 	StateSnapshotOperationSnapshotStates         StateSnapshotOperation = "SnapshotStates"
 	StateSnapshotOperationRevertStatesToSnapshot StateSnapshotOperation = "RevertStatesToSnapshot"
 	StateSnapshotOperationGetSnapshot            StateSnapshotOperation = "GetSnapshot"
+	StateSnapshotOperationGetSnapshotIDs         StateSnapshotOperation = "GetSnapshotIDs"
 	StateSnapshotOperationDeleteSnapshot         StateSnapshotOperation = "DeleteSnapshot"
 	StateSnapshotOperationClearSnapshots         StateSnapshotOperation = "ClearSnapshots"
 )

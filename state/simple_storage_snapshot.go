@@ -134,6 +134,38 @@ func (s *SimpleStorageSnapshot) GetSnapshot(snapshotID string) (storage Storage,
 	return s.getSnapshot(snapshotID)
 }
 
+func (s *SimpleStorageSnapshot) GetSnapshotIDs() (snapshotIDs []string, err error) {
+	s.storage.Lock()
+	defer s.storage.Unlock()
+
+	return s.getSnapshotIDs()
+}
+
+func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err error) {
+	sm, err := s.getSnapshotManagementStorage()
+	if err != nil {
+		return
+	}
+
+	snapshotState := MustNewSnapshotState(&sync.Mutex{}, "")
+	snapshotStateIds, err := sm.GetStateIDs(snapshotState.StateName())
+	if err != nil {
+		return
+	}
+
+	for _, snapshotStateId := range snapshotStateIds {
+		snapshot := MustNewSnapshotState(&sync.Mutex{}, "")
+		err = NewJsonIDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.ID)
+		if err != nil {
+			return
+		}
+
+		snapshotIDs = append(snapshotIDs, snapshot.ID)
+	}
+
+	return
+}
+
 func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage, err error) {
 	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
 	stateID, err := snapshot.GetIDMarshaler().MarshalStateID(snapshot.StateIDComponents()...)
@@ -225,25 +257,13 @@ func (s *SimpleStorageSnapshot) ClearSnapshots() (err error) {
 	s.storage.Lock()
 	defer s.storage.Unlock()
 
-	sm, err := s.getSnapshotManagementStorage()
+	snapshotIds, err := s.getSnapshotIDs()
 	if err != nil {
 		return
 	}
 
-	snapshotState := MustNewSnapshotState(&sync.Mutex{}, "")
-	snapshotStateIds, err := sm.GetStateIDs(snapshotState.StateName())
-	if err != nil {
-		return
-	}
-
-	for _, snapshotStateId := range snapshotStateIds {
-		snapshot := MustNewSnapshotState(&sync.Mutex{}, "")
-		err = NewJsonIDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.ID)
-		if err != nil {
-			return
-		}
-
-		err = s.deleteSnapshot(snapshot.ID)
+	for _, snapshotId := range snapshotIds {
+		err = s.deleteSnapshot(snapshotId)
 		if err != nil {
 			return err
 		}

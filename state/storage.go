@@ -47,6 +47,7 @@ type StorageSnapshot interface {
 	SnapshotStates() (snapshotID string, err error)
 	RevertStatesToSnapshot(snapshotID string) (err error)
 	GetSnapshot(snapshotID string) (storage Storage, err error)
+	GetSnapshotIDs() (snapshotIDs []string, err error)
 	DeleteSnapshot(snapshotID string) (err error)
 	ClearSnapshots() (err error)
 }
