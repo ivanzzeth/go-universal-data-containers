@@ -88,6 +88,7 @@ var (
 		Name:      "queue_handle_duration_seconds",
 		Help:      "Duration of handling for a queue.",
 		Buckets: []float64{
+			0.001, // 1 ms
 			0.005, // 5 ms
 			0.01,  // 10 ms
 			0.025, // 25 ms
