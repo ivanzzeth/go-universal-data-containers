@@ -217,7 +217,7 @@ func (s *MemoryStorage) ClearStates(states ...State) error {
 			}
 
 			delete(table, stateId)
-			fmt.Printf("Delete state: %s -> %s\n", state.StateName(), stateId)
+			// fmt.Printf("Delete state: %s -> %s\n", state.StateName(), stateId)
 		}
 	}
 

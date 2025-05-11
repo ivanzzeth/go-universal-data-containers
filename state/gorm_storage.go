@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"strings"
 	"sync"
@@ -223,7 +222,7 @@ func (s *GORMStorage) LoadAllStates() ([]State, error) {
 
 	states := []State{}
 	for _, sm := range stateManagements {
-		fmt.Printf("LoadAllStates: sm: %+v\n", sm)
+		// fmt.Printf("LoadAllStates: sm: %+v\n", sm)
 
 		tableName := sm.StateNamee
 		stateID := sm.StateID
@@ -296,7 +295,7 @@ func (s *GORMStorage) SaveStates(states ...State) error {
 
 		models = append(models, sm)
 
-		fmt.Printf("SaveStates: state: %+v, sm: %+v\n", state, sm)
+		// fmt.Printf("SaveStates: state: %+v, sm: %+v\n", state, sm)
 	}
 
 	return s.BatchSave(models...)
@@ -418,7 +417,7 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 	}
 
 	sql := strings.Join(sqlStatements, ";")
-	log.Println("SQL:", sql)
+	// log.Println("SQL:", sql)
 	return db.Exec(sql).Error
 }
 
