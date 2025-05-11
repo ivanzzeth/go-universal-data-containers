@@ -12,6 +12,11 @@ func TestJsonIDMarshaler(t *testing.T) {
 	SpecTestIDMarshaler(t, m)
 }
 
+func TestBase64IDMarshaler(t *testing.T) {
+	m := NewBase64IDMarshaler("-")
+	SpecTestIDMarshaler(t, m)
+}
+
 func SpecTestIDMarshaler(t *testing.T, m IDMarshaler) {
 	user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
 

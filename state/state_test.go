@@ -21,7 +21,7 @@ func MustNewTestUserModel(locker sync.Locker, name, server string) *TestUserMode
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
 	state.SetStateName("test_user_models")
-	state.SetIDMarshaler(NewJsonIDMarshaler("-"))
+	state.SetIDMarshaler(NewBase64IDMarshaler("-"))
 
 	m := &TestUserModel{BaseState: *state, Name: name, Server: server}
 

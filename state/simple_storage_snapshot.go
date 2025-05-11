@@ -23,7 +23,7 @@ func MustNewSnapshotState(locker sync.Locker, id string) *SnapshotState {
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
 	state.SetStateName("snapshot_states")
-	state.SetIDMarshaler(NewJsonIDMarshaler("_"))
+	state.SetIDMarshaler(NewBase64IDMarshaler("_"))
 
 	m := &SnapshotState{BaseState: *state, GormModel: GormModel{ID: id}}
 
@@ -155,7 +155,7 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 
 	for _, snapshotStateId := range snapshotStateIds {
 		snapshot := MustNewSnapshotState(&sync.Mutex{}, "")
-		err = NewJsonIDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.ID)
+		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.ID)
 		if err != nil {
 			return
 		}

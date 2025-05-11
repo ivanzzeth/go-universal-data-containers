@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 var (
 	_ IDMarshaler = (*JsonIDMarshaler)(nil)
+	_ IDMarshaler = (*Base64IDMarshaler)(nil)
 )
 
 var (
@@ -56,4 +58,32 @@ func (c *JsonIDMarshaler) UnmarshalStateID(ID string, fields ...any) error {
 	}
 
 	return nil
+}
+
+type Base64IDMarshaler struct {
+	*JsonIDMarshaler
+}
+
+func NewBase64IDMarshaler(seperator string) *Base64IDMarshaler {
+	return &Base64IDMarshaler{NewJsonIDMarshaler(seperator)}
+}
+
+func (c *Base64IDMarshaler) MarshalStateID(fields ...any) (string, error) {
+	id, err := c.JsonIDMarshaler.MarshalStateID(fields...)
+	if err != nil {
+		return "", err
+	}
+
+	encoded := base64.StdEncoding.EncodeToString([]byte(id))
+
+	return encoded, nil
+}
+
+func (c *Base64IDMarshaler) UnmarshalStateID(ID string, fields ...any) error {
+	decoded, err := base64.StdEncoding.DecodeString(ID)
+	if err != nil {
+		return err
+	}
+
+	return c.JsonIDMarshaler.UnmarshalStateID(string(decoded), fields...)
 }
