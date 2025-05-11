@@ -49,10 +49,14 @@ func NewSimpleStorageSnapshot(storageFactory StorageFactory) *SimpleStorageSnaps
 	}
 }
 
-func (s *SimpleStorageSnapshot) SetStorage(storage Storage) {
+func (s *SimpleStorageSnapshot) SetStorageForSnapshot(storage Storage) {
 	s.setStorageOnce.Do(func() {
 		s.storage = storage
 	})
+}
+
+func (s *SimpleStorageSnapshot) GetStorageForSnapshot() (storage Storage) {
+	return s.storage
 }
 
 func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) {

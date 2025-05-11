@@ -39,7 +39,10 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 		var locker sync.Locker
 		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
 		if err == nil {
-			storage := NewMemoryStorage(locker, f.registry, snapshot, name)
+			var storage Storage
+			storage = NewMemoryStorage(locker, f.registry, snapshot, name)
+			storage = NewStorageWithMetrics(storage)
+
 			f.table.LoadOrStore(name, storage)
 		}
 	})
@@ -81,7 +84,7 @@ func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSna
 		States:   make(map[string]map[string]State),
 	}
 
-	snapshot.SetStorage(s)
+	snapshot.SetStorageForSnapshot(s)
 	s.StorageSnapshot = snapshot
 	return s
 }

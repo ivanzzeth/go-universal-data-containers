@@ -49,6 +49,8 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 		}
 		var storage Storage
 		storage, err = NewGORMStorage(locker, f.db, f.registry, snapshot, name)
+		storage = NewStorageWithMetrics(storage)
+
 		f.table.LoadOrStore(name, storage)
 	})
 	if err != nil {
@@ -116,7 +118,7 @@ func NewGORMStorage(locker sync.Locker, db *gorm.DB, registry Registry, snapshot
 		StorageSnapshot: snapshot,
 	}
 
-	snapshot.SetStorage(s)
+	snapshot.SetStorageForSnapshot(s)
 	s.StorageSnapshot = snapshot
 
 	err := db.AutoMigrate(&StateManagement{})

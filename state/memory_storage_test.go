@@ -35,6 +35,6 @@ func BenchmarkMemoryStorageWith2msLatency(b *testing.B) {
 
 	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot, "")
 	storage.setDelay(2 * time.Millisecond)
-	snapshot.SetStorage(storage)
+	snapshot.SetStorageForSnapshot(storage)
 	SpecBenchmarkStorage(b, registry, storage)
 }

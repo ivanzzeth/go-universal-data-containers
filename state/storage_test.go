@@ -175,6 +175,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Logf("snapshot1: %v", snapshot1)
 
 	t.Run("SnapshotStates", func(t *testing.T) {
 		err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
@@ -216,6 +217,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		t.Logf("snapshot2: %v", snapshot2)
 
 		t.Logf("RevertStatesToSnapshot revert to snapshot1")
 		err = storage.RevertStatesToSnapshot(snapshot1)

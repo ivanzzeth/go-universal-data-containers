@@ -46,6 +46,8 @@ func (f *RedisStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 		if err == nil {
 			var storage Storage
 			storage, err = NewRedisStorage(locker, f.redisClient, f.registry, snapshot, name)
+			storage = NewStorageWithMetrics(storage)
+
 			f.table.LoadOrStore(name, storage)
 		}
 	})
@@ -94,7 +96,7 @@ func NewRedisStorage(locker sync.Locker, redisClient *redis.Client, registry Reg
 		partition: partition,
 	}
 
-	snapshot.SetStorage(s)
+	snapshot.SetStorageForSnapshot(s)
 	s.StorageSnapshot = snapshot
 	return s, nil
 }

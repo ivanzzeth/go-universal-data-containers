@@ -40,7 +40,9 @@ type Storage interface {
 }
 
 type StorageSnapshot interface {
-	SetStorage(storage Storage)
+	SetStorageForSnapshot(storage Storage)
+	GetStorageForSnapshot() (storage Storage)
+
 	SnapshotStates() (snapshotID string, err error)
 	RevertStatesToSnapshot(snapshotID string) (err error)
 	GetSnapshot(snapshotID string) (storage Storage, err error)
