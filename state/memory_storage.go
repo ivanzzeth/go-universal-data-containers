@@ -68,7 +68,10 @@ type MemoryStorage struct {
 	name string
 
 	// Only used for simulating network latency
-	delay  time.Duration
+	delay time.Duration
+
+	stateLocker sync.Locker
+
 	States map[string]map[string]State
 }
 
@@ -78,10 +81,11 @@ func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSna
 	}
 
 	s := &MemoryStorage{
-		locker:   locker,
-		registry: registry,
-		name:     name,
-		States:   make(map[string]map[string]State),
+		locker:      locker,
+		stateLocker: &sync.Mutex{},
+		registry:    registry,
+		name:        name,
+		States:      make(map[string]map[string]State),
 	}
 
 	snapshot.SetStorageForSnapshot(s)
@@ -112,6 +116,9 @@ func (s *MemoryStorage) Unlock() {
 func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
 	time.Sleep(s.delay)
 
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
+
 	table, ok := s.States[name]
 	if !ok {
 		table = make(map[string]State)
@@ -129,6 +136,9 @@ func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
 func (s *MemoryStorage) GetStateNames() ([]string, error) {
 	time.Sleep(s.delay)
 
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
+
 	names := make([]string, 0, len(s.States))
 	for name := range s.States {
 		names = append(names, name)
@@ -139,6 +149,9 @@ func (s *MemoryStorage) GetStateNames() ([]string, error) {
 
 func (s *MemoryStorage) LoadAllStates() ([]State, error) {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	states := make([]State, 0, len(s.States))
 	for _, table := range s.States {
@@ -157,6 +170,9 @@ func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
 	}
 
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	table, ok := s.States[name]
 	if !ok {
@@ -178,6 +194,9 @@ func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
 
 func (s *MemoryStorage) SaveStates(states ...State) error {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	for _, state := range states {
 		if state == nil {
@@ -204,6 +223,9 @@ func (s *MemoryStorage) SaveStates(states ...State) error {
 func (s *MemoryStorage) ClearStates(states ...State) error {
 	time.Sleep(s.delay)
 
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
+
 	for _, state := range states {
 		if state == nil {
 			continue
@@ -226,6 +248,9 @@ func (s *MemoryStorage) ClearStates(states ...State) error {
 
 func (s *MemoryStorage) ClearAllStates() error {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	s.States = make(map[string]map[string]State)
 
