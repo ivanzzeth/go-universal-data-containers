@@ -54,3 +54,11 @@ func (s *StateContainer[T]) Unwrap() T {
 func (s *StateContainer[T]) Save() error {
 	return s.finalizer.SaveState(s.state)
 }
+
+func (s *StateContainer[T]) Delete() error {
+	return s.finalizer.ClearStates(s.state)
+}
+
+func (s *StateContainer[T]) DeleteCache() error {
+	return s.finalizer.ClearCacheStates(s.state)
+}

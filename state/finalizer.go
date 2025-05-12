@@ -5,6 +5,10 @@ type Finalizer interface {
 	LoadState(name string, id string) (State, error)
 	SaveState(state State) error
 
+	ClearCacheStates(states ...State) error
+	ClearPersistStates(states ...State) error
+	ClearStates(states ...State) error
+
 	FinalizeSnapshot(snapshotID string) error
 	FinalizeAllCachedStates() error
 	ClearAllCachedStates() error

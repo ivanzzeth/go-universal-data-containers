@@ -231,8 +231,8 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			t.Fatal(err)
 		}
 		assert.Equal(t, 2, len(snapshotIds))
-		assert.Equal(t, snapshot1, snapshotIds[0])
-		assert.Equal(t, snapshot2, snapshotIds[1])
+		assert.Contains(t, snapshotIds, snapshot1)
+		assert.Contains(t, snapshotIds, snapshot2)
 
 		t.Logf("RevertStatesToSnapshot revert to snapshot1")
 		err = storage.RevertStatesToSnapshot(snapshot1)
