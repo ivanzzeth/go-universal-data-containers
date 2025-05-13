@@ -2,7 +2,10 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"sync"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -33,4 +36,9 @@ func GetStateID(state State) (stateID string, err error) {
 	}
 
 	return
+}
+
+func GetStateLockerByName(lockerGenerator locker.SyncLockerGenerator, stateName string) (sync.Locker, error) {
+	locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("state-locker-%v", stateName))
+	return locker, err
 }

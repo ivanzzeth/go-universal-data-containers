@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"sync"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
@@ -50,4 +51,9 @@ type StorageSnapshot interface {
 	GetSnapshotIDs() (snapshotIDs []string, err error)
 	DeleteSnapshot(snapshotID string) (err error)
 	ClearSnapshots() (err error)
+}
+
+func GetStorageLockerByName(lockerGenerator locker.SyncLockerGenerator, storageName string) (sync.Locker, error) {
+	locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", storageName))
+	return locker, err
 }

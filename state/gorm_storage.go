@@ -42,13 +42,9 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 			}
 		}
 		snapshot := f.newSnapshot(f)
-		var locker sync.Locker
-		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
-		if err != nil {
-			return
-		}
+
 		var storage Storage
-		storage, err = NewGORMStorage(locker, f.db, f.registry, snapshot, name)
+		storage, err = NewGORMStorage(f.SyncLockerGenerator, f.db, f.registry, snapshot, name)
 		storage = NewStorageWithMetrics(storage)
 
 		f.table.LoadOrStore(name, storage)
@@ -133,9 +129,14 @@ func (u *StateManagement) StateIDComponents() []any {
 	return []any{&u.stateName, &u.StateID, &u.Partition}
 }
 
-func NewGORMStorage(locker sync.Locker, db *gorm.DB, registry Registry, snapshot StorageSnapshot, partition string) (*GORMStorage, error) {
+func NewGORMStorage(lockerGenerator locker.SyncLockerGenerator, db *gorm.DB, registry Registry, snapshot StorageSnapshot, partition string) (*GORMStorage, error) {
 	if partition == "" {
 		partition = "default"
+	}
+
+	locker, err := GetStorageLockerByName(lockerGenerator, partition)
+	if err != nil {
+		return nil, err
 	}
 
 	s := &GORMStorage{
@@ -149,7 +150,7 @@ func NewGORMStorage(locker sync.Locker, db *gorm.DB, registry Registry, snapshot
 	snapshot.SetStorageForSnapshot(s)
 	s.StorageSnapshot = snapshot
 
-	err := db.AutoMigrate(&StateManagement{})
+	err = db.AutoMigrate(&StateManagement{})
 	if err != nil {
 		return nil, err
 	}

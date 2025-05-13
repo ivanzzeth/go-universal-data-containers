@@ -41,15 +41,11 @@ func (f *RedisStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 			}
 		}
 		snapshot := f.newSnapshot(f)
-		var locker sync.Locker
-		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
-		if err == nil {
-			var storage Storage
-			storage, err = NewRedisStorage(locker, f.redisClient, f.registry, snapshot, name)
-			storage = NewStorageWithMetrics(storage)
+		var storage Storage
+		storage, err = NewRedisStorage(f.SyncLockerGenerator, f.redisClient, f.registry, snapshot, name)
+		storage = NewStorageWithMetrics(storage)
 
-			f.table.LoadOrStore(name, storage)
-		}
+		f.table.LoadOrStore(name, storage)
 	})
 	if err != nil {
 		f.table.Delete(fmt.Sprintf("%v-once", name))
@@ -83,9 +79,14 @@ type RedisStorage struct {
 	delay time.Duration
 }
 
-func NewRedisStorage(locker sync.Locker, redisClient *redis.Client, registry Registry, snapshot StorageSnapshot, partition string) (*RedisStorage, error) {
+func NewRedisStorage(lockerGenerator locker.SyncLockerGenerator, redisClient *redis.Client, registry Registry, snapshot StorageSnapshot, partition string) (*RedisStorage, error) {
 	if partition == "" {
 		partition = "default"
+	}
+
+	locker, err := GetStateLockerByName(lockerGenerator, partition)
+	if err != nil {
+		return nil, err
 	}
 
 	s := &RedisStorage{

@@ -1,7 +1,6 @@
 package state
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -13,10 +12,11 @@ import (
 func TestRedisStorage(t *testing.T) {
 	rdb := setupRdb(t)
 	registry := NewSimpleRegistry()
-	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+	storageFactory := NewRedisStorageFactory(rdb, registry, lockerGenerator, nil)
 	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
 
-	storage, err := NewRedisStorage(&sync.Mutex{}, rdb, registry, snapshot, "default")
+	storage, err := NewRedisStorage(lockerGenerator, rdb, registry, snapshot, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,10 +28,11 @@ func BenchmarkRedisStorageWith2msLatency(b *testing.B) {
 	rdb := setupRdb(b)
 
 	registry := NewSimpleRegistry()
-	storageFactory := NewRedisStorageFactory(rdb, registry, locker.NewMemoryLockerGenerator(), nil)
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+	storageFactory := NewRedisStorageFactory(rdb, registry, lockerGenerator, nil)
 	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
 
-	storage, err := NewRedisStorage(&sync.Mutex{}, rdb, registry, snapshot, "default")
+	storage, err := NewRedisStorage(lockerGenerator, rdb, registry, snapshot, "default")
 	if err != nil {
 		b.Fatal(err)
 	}

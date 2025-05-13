@@ -22,6 +22,10 @@ func (s *StateContainer[T]) Wrap(state T) *StateContainer[T] {
 	return s
 }
 
+// func (s *StateContainer[T]) GetAndLock() (T, error) {
+
+// }
+
 func (s *StateContainer[T]) Get() (T, error) {
 	if len(s.state.StateIDComponents()) == 0 {
 		return reflect.New(reflect.TypeOf(s.state)).Elem().Interface().(T), ErrStateIDComponents

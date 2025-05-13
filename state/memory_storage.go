@@ -36,15 +36,10 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 			}
 		}
 		snapshot := f.newSnapshot(f)
-		var locker sync.Locker
-		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
-		if err == nil {
-			var storage Storage
-			storage = NewMemoryStorage(locker, f.registry, snapshot, name)
-			storage = NewStorageWithMetrics(storage)
-
-			f.table.LoadOrStore(name, storage)
-		}
+		var storage Storage
+		storage, err = NewMemoryStorage(f.SyncLockerGenerator, f.registry, snapshot, name)
+		storage = NewStorageWithMetrics(storage)
+		f.table.LoadOrStore(name, storage)
 	})
 	if err != nil {
 		f.table.Delete(fmt.Sprintf("%v-once", name))
@@ -75,9 +70,14 @@ type MemoryStorage struct {
 	States map[string]map[string]State
 }
 
-func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSnapshot, name string) *MemoryStorage {
+func NewMemoryStorage(lockerGenerator locker.SyncLockerGenerator, registry Registry, snapshot StorageSnapshot, name string) (*MemoryStorage, error) {
 	if name == "" {
 		name = "default"
+	}
+
+	locker, err := GetStateLockerByName(lockerGenerator, name)
+	if err != nil {
+		return nil, err
 	}
 
 	s := &MemoryStorage{
@@ -90,7 +90,7 @@ func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSna
 
 	snapshot.SetStorageForSnapshot(s)
 	s.StorageSnapshot = snapshot
-	return s
+	return s, nil
 }
 
 func (s *MemoryStorage) setDelay(delay time.Duration) {

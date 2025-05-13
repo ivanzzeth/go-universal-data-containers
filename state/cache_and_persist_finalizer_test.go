@@ -15,12 +15,13 @@ func TestCacheAndPersistFinalizer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
 	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
-	cache := NewMemoryStorage(&sync.Mutex{}, registry, cacheSnapshot, "")
+	cache, _ := NewMemoryStorage(lockerGenerator, registry, cacheSnapshot, "")
 
 	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
-	persist := NewMemoryStorage(&sync.Mutex{}, registry, persistSnapshot, "")
+	persist, _ := NewMemoryStorage(lockerGenerator, registry, persistSnapshot, "")
 
 	ticker := time.NewTicker(2 * time.Second).C
 	f := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)
