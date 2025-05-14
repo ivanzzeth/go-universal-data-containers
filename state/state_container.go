@@ -6,6 +6,11 @@ import (
 	"sync"
 )
 
+// StateContainer is helpful to work with state.
+// It's a wrapper for state, that provides some useful methods to
+// simplify work with state no matter what storage you are using.
+// It uses `Finalizer` to finalize state into persist storage to
+// speed up your application even distributed system.
 type StateContainer[T State] struct {
 	finalizer Finalizer
 	state     T

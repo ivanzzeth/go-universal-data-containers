@@ -15,6 +15,13 @@ var (
 	ErrStateIDComponents  = errors.New("state id components must not be empty")
 )
 
+// State is a state interface.
+// It aims to provide a simple way to work with state.
+// What does it mean?
+// If a record has a unique identifier, and it can be generated through
+// mulitple other fields. e.g, a user id can be generated through user name, location, etc.,
+// then we can use it as a state id.
+// It's very simular to multiple primary keys in SQL databases.
 type State interface {
 	sync.Locker
 	GetLocker() sync.Locker
@@ -25,6 +32,7 @@ type State interface {
 	GetIDMarshaler() IDMarshaler
 	StateIDComponents() StateIDComponents
 
+	// To avoid use it outside of initialization.
 	Initialize(generator locker.SyncLockerGenerator, stateName string, idMarshaler IDMarshaler, idComponents StateIDComponents) error
 }
 

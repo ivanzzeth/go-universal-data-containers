@@ -142,7 +142,37 @@ func (s *CacheAndPersistFinalizer) ClearStates(states ...State) error {
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) error {
+func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) (err error) {
+	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name))
+
+	finalizeState, err := stateContainer.GetAndLock()
+
+	if err != nil {
+		return
+	}
+	defer finalizeState.Unlock()
+
+	// Double check lastTime
+	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
+		return
+	}
+
+	finalizeState.LastFinalizeTime = time.Now()
+
+	err = s.finalizeSnapshot(snapshotID)
+	if err != nil {
+		return err
+	}
+
+	err = stateContainer.Save()
+	if err != nil {
+		return
+	}
+
+	return nil
+}
+
+func (s *CacheAndPersistFinalizer) finalizeSnapshot(snapshotID string) error {
 	snapshot, err := s.StorageSnapshot.GetSnapshot(snapshotID)
 	if err != nil {
 		return err
@@ -161,7 +191,37 @@ func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) error {
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() error {
+func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() (err error) {
+	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name))
+
+	finalizeState, err := stateContainer.GetAndLock()
+
+	if err != nil {
+		return
+	}
+	defer finalizeState.Unlock()
+
+	// Double check lastTime
+	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
+		return
+	}
+
+	finalizeState.LastFinalizeTime = time.Now()
+
+	err = s.finalizeAllCachedStates()
+	if err != nil {
+		return
+	}
+
+	err = stateContainer.Save()
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func (s *CacheAndPersistFinalizer) finalizeAllCachedStates() error {
 	states, err := s.cache.LoadAllStates()
 	if err != nil {
 		return err
@@ -172,10 +232,10 @@ func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() error {
 		return err
 	}
 
-	// err = s.ClearAllCachedStates()
-	// if err != nil {
-	// 	return err
-	// }
+	err = s.ClearAllCachedStates()
+	if err != nil {
+		return err
+	}
 
 	// MUST clear snapshots manully
 	// err = s.cache.ClearSnapshots()
@@ -213,58 +273,12 @@ func (s *CacheAndPersistFinalizer) run() {
 			return
 		case <-s.ticker:
 			if s.autoFinalizeEnabled.Load() {
-				func() {
-					// log.Printf("FinalizeAllCachedStates started..., finalizer: %p\n", s)
-
-					stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name))
-
-					// log.Printf("FinalizeAllCachedStates getAndLock..., finalizer: %p\n", s)
-
-					finalizeState, err := stateContainer.GetAndLock()
-					// log.Printf("FinalizeAllCachedStates getAndLock2..., finalizer: %p\n", s)
-
-					if err != nil {
-						// TODO: logging
-						// log.Printf("FinalizeAllCachedStates getAndLock3..., finalizer: %p, err: %v\n", s, err)
-						return
-					}
-					// var finalized bool
-
-					// defer func() {
-					// 	if finalized {
-					// 		log.Printf("FinalizeAllCachedStates finalized..., finalizer: %p\n", s)
-					// 	}
-					// }()
-
-					defer finalizeState.Unlock()
-
-					// Double check lastTime
-					// log.Printf("FinalizeAllCachedStates check lastTime..., finalizer: %p\n", s)
-
-					if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
-						return
-					}
-
-					// log.Printf("FinalizeAllCachedStates finalizing..., finalizer: %p\n", s)
-
-					finalizeState.LastFinalizeTime = time.Now()
-
-					err = s.FinalizeAllCachedStates()
-					if err != nil {
-						// TODO: logging
-						// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)
-						return
-					}
-
-					err = stateContainer.Save()
-					if err != nil {
-						// TODO: logging
-						// fmt.Printf("Save failed: %v\n", err)
-						return
-					}
-
-					// finalized = true
-				}()
+				err := s.FinalizeAllCachedStates()
+				if err != nil {
+					// TODO: logging
+					// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)
+					return
+				}
 			}
 
 			time.Sleep(10 * time.Millisecond)
