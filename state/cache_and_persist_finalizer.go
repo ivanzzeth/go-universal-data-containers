@@ -61,6 +61,7 @@ func NewCacheAndPersistFinalizer(interval time.Duration, registry Registry, lock
 }
 
 type FinalizeState struct {
+	GormModel
 	BaseState
 	Name             string
 	LastFinalizeTime time.Time
@@ -75,6 +76,11 @@ func MustNewFinalizeState(lockerGenerator locker.SyncLockerGenerator, name strin
 	}
 
 	f.BaseState = *state
+
+	err = f.FillID(f)
+	if err != nil {
+		panic(fmt.Errorf("invalid stateID: %v", err))
+	}
 
 	return f
 }
