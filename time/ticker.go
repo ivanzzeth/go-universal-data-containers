@@ -183,6 +183,7 @@ func (d *DistributedTicker) run() {
 }
 
 type TickerState struct {
+	state.GormModel
 	state.BaseState
 	Name         string
 	LastTickTime time.Time
@@ -197,6 +198,11 @@ func MustNewTickerState(lockerGenerator locker.SyncLockerGenerator, name string)
 	}
 
 	f.BaseState = *state
+
+	err = f.FillID(f)
+	if err != nil {
+		panic(fmt.Errorf("invalid stateID: %v", err))
+	}
 
 	return f
 }
