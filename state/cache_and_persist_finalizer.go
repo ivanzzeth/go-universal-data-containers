@@ -70,6 +70,10 @@ func (s *CacheAndPersistFinalizer) SaveState(state State) error {
 	return s.cache.SaveStates(state)
 }
 
+func (s *CacheAndPersistFinalizer) SaveStates(states ...State) error {
+	return s.cache.SaveStates(states...)
+}
+
 func (s *CacheAndPersistFinalizer) ClearCacheStates(states ...State) error {
 	return s.cache.ClearStates(states...)
 }
