@@ -12,7 +12,7 @@ import (
 )
 
 func TestGORMStorage(t *testing.T) {
-	testDb, err := setupDB()
+	testDb, err := setupTestGormDB()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestSetGormPrimaryKeyZeroValue(t *testing.T) {
 }
 
 func BenchmarkGORMStorageWith20msLatency(b *testing.B) {
-	testDb, err := setupDB()
+	testDb, err := setupTestGormDB()
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func BenchmarkGORMStorageWith20msLatency(b *testing.B) {
 	SpecBenchmarkStorage(b, registry, storage)
 }
 
-func setupDB() (*gorm.DB, error) {
+func setupTestGormDB() (*gorm.DB, error) {
 	testDb, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
 		// DisableForeignKeyConstraintWhenMigrating: true,
 		Logger: logger.Discard,

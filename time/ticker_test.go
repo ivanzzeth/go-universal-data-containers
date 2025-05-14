@@ -8,6 +8,9 @@ import (
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/ivanzzeth/go-universal-data-containers/queue"
 	"github.com/ivanzzeth/go-universal-data-containers/state"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func SpecTestTicker(t *testing.T, tickerFactory func() Ticker) {
@@ -62,4 +65,45 @@ func TestDistributedTicker(t *testing.T) {
 
 		return dt
 	})
+}
+
+func TestDistributedTickerWithGorm(t *testing.T) {
+	db, err := setupTestGormDB()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+	registry := state.NewSimpleRegistry()
+	storageFactory := state.NewGORMStorageFactory(db, registry, lockerGenerator, nil)
+	snapshot := state.NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
+	storage, err := state.NewGORMStorage(lockerGenerator, db, registry, snapshot, "gorm-store")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	qf := queue.NewMemoryFactory()
+
+	SpecTestTicker(t, func() Ticker {
+		dt, _ := NewDistributedTicker("test", 100*time.Millisecond, registry, storage, lockerGenerator, qf)
+
+		return dt
+	})
+}
+
+func setupTestGormDB() (*gorm.DB, error) {
+	testDb, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
+		// DisableForeignKeyConstraintWhenMigrating: true,
+		Logger: logger.Discard,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	err = testDb.AutoMigrate(&TickerState{})
+	if err != nil {
+		return nil, err
+	}
+
+	return testDb, nil
 }

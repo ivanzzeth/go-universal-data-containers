@@ -3,6 +3,7 @@ package time
 import (
 	"errors"
 	"fmt"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -148,8 +149,13 @@ func (d *DistributedTicker) run() {
 					return fmt.Errorf("failed to cast state to TickerState")
 				}
 
+				if tickerState.LastTickTime.Unix() <= 0 {
+					tickerState.LastTickTime = time.Now()
+				}
+
 				if time.Since(tickerState.LastTickTime) <= d.interval {
-					return fmt.Errorf("not time to tick. lastTime: %v, now: %v", tickerState.LastTickTime, time.Now())
+					// return nil
+					// return fmt.Errorf("not time to tick. elapsed: %v, lastTime: %v, now: %v", time.Since(tickerState.LastTickTime), tickerState.LastTickTime, time.Now())
 				}
 
 				// log.Printf("tick6\n")
@@ -174,7 +180,7 @@ func (d *DistributedTicker) run() {
 			}()
 			if err != nil {
 				// TODO: logging
-				// log.Printf("failed to tick: %v\n", err)
+				log.Printf("failed to tick: %v\n", err)
 			}
 
 			time.Sleep(tickerInterval)
