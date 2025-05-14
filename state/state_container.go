@@ -23,8 +23,25 @@ func (s *StateContainer[T]) Wrap(state T) *StateContainer[T] {
 	return s
 }
 
+func (s *StateContainer[T]) StateID() (stateID string, err error) {
+	return GetStateID(s.state)
+}
+
 func (s *StateContainer[T]) GetLocker() (sync.Locker, error) {
-	return GetStateLockerByName(s.state.GetLockerGenerator(), s.state.StateName())
+	stateID, err := s.StateID()
+	if err != nil {
+		return nil, err
+	}
+
+	locker, err := GetStateLockerByName(s.state.GetLockerGenerator(), s.state.StateName(), stateID)
+	if err != nil {
+		return nil, err
+	}
+
+	// fmt.Printf("GetLocker, name: %v stateID: %v, locker: %p, generator: %p\n",
+	// 	s.state.StateName(), stateID, locker, s.state.GetLockerGenerator())
+
+	return locker, nil
 }
 
 func (s *StateContainer[T]) GetAndLock() (T, error) {
@@ -32,9 +49,6 @@ func (s *StateContainer[T]) GetAndLock() (T, error) {
 	if err != nil {
 		return s.nilState(), err
 	}
-
-	// fmt.Printf("GetAndLock, name: %v locker: %p, generator: %p\n",
-	// 	s.state.StateName(), locker, s.state.GetLockerGenerator())
 
 	// Lock first
 	locker.Lock()

@@ -19,7 +19,7 @@ func NewMemoryLockerGenerator() *MemoryLockerGenerator {
 
 func (g *MemoryLockerGenerator) CreateSyncLocker(name string) (sync.Locker, error) {
 	lv, _ := g.table.LoadOrStore(name, &sync.Mutex{})
-	// fmt.Printf("CreateSyncLocker: name: %v, locker: %p\n", name, lv)
+	// fmt.Printf("CreateSyncLocker: name: %v, locker: %p, generator: %p\n", name, lv, g)
 
 	return lv.(*sync.Mutex), nil
 }

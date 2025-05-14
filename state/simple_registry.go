@@ -44,12 +44,10 @@ func (s *SimpleRegistry) NewState(name string) (State, error) {
 
 	state := stateInterface.(State)
 
-	state.SetStateName(name)
-	err := state.SetLockerGenerator(registered.(State).GetLockerGenerator())
+	err := state.Initialize(registered.(State).GetLockerGenerator(), name, registered.(State).GetIDMarshaler(), registered.(State).StateIDComponents())
 	if err != nil {
 		return nil, err
 	}
 
-	state.SetIDMarshaler(registered.(State).GetIDMarshaler())
 	return state, nil
 }

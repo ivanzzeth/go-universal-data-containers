@@ -18,13 +18,15 @@ type BaseState struct {
 	lockerGenerator locker.SyncLockerGenerator
 }
 
-func NewBaseState(lockerGenerator locker.SyncLockerGenerator, stateName string) *BaseState {
-	s := &BaseState{stateName: stateName}
-	if lockerGenerator != nil {
-		s.SetLockerGenerator(lockerGenerator)
+func NewBaseState(lockerGenerator locker.SyncLockerGenerator, stateName string, idMarshaler IDMarshaler, idComponents StateIDComponents) (*BaseState, error) {
+	s := &BaseState{}
+
+	err := s.Initialize(lockerGenerator, stateName, idMarshaler, idComponents)
+	if err != nil {
+		return nil, err
 	}
 
-	return s
+	return s, nil
 }
 
 func (s *BaseState) StateName() string {
@@ -39,26 +41,39 @@ func (s *BaseState) GetIDMarshaler() IDMarshaler {
 	return s.idMarshaler
 }
 
-func (s *BaseState) SetIDMarshaler(idMarshaler IDMarshaler) {
-	s.idMarshaler = idMarshaler
-}
-
-func (s *BaseState) StateIDComponents() []any {
+func (s *BaseState) StateIDComponents() StateIDComponents {
 	panic(common.ErrNotImplemented)
-}
-
-func (s *BaseState) SetStateName(name string) {
-	s.stateName = name
 }
 
 func (s *BaseState) GetLocker() sync.Locker {
 	return s.locker
 }
 
-func (s *BaseState) SetLockerGenerator(generator locker.SyncLockerGenerator) (err error) {
+func (s *BaseState) Initialize(generator locker.SyncLockerGenerator, stateName string, idMarshaler IDMarshaler, idComponents StateIDComponents) (err error) {
+	s.idMarshaler = idMarshaler
+	s.stateName = stateName
 	s.lockerGenerator = generator
-	s.locker, err = GetStateLockerByName(s.lockerGenerator, s.stateName)
-	return
+
+	defer func() {
+		if err != nil {
+			s.locker = nil
+			s.idMarshaler = nil
+			s.stateName = ""
+			s.lockerGenerator = nil
+		}
+	}()
+
+	stateID, err := GetStateIDByComponents(idMarshaler, idComponents)
+	if err != nil {
+		return err
+	}
+
+	s.locker, err = GetStateLockerByName(generator, s.stateName, stateID)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *BaseState) GetLockerGenerator() locker.SyncLockerGenerator {

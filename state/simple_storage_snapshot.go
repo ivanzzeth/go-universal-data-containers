@@ -24,12 +24,16 @@ type SnapshotState struct {
 func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, snapshotId string) *SnapshotState {
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
-	state := NewBaseState(lockerGenerator, "snapshot_states")
-	state.SetIDMarshaler(NewBase64IDMarshaler("_"))
+	m := &SnapshotState{GormModel: GormModel{}, SnapshotID: snapshotId}
 
-	m := &SnapshotState{BaseState: *state, GormModel: GormModel{}, SnapshotID: snapshotId}
+	state, err := NewBaseState(lockerGenerator, "snapshot_states", NewBase64IDMarshaler("_"), m.StateIDComponents())
+	if err != nil {
+		panic(fmt.Errorf("failed to create base state: %v", err))
+	}
 
-	err := m.FillID(m)
+	m.BaseState = *state
+
+	err = m.FillID(m)
 	if err != nil {
 		panic(fmt.Errorf("invalid stateID: %v", err))
 	}
@@ -37,7 +41,7 @@ func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, snapshotId
 	return m
 }
 
-func (u *SnapshotState) StateIDComponents() []any {
+func (u *SnapshotState) StateIDComponents() StateIDComponents {
 	return []any{&u.SnapshotID}
 }
 

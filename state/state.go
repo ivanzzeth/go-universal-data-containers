@@ -16,23 +16,22 @@ var (
 )
 
 type State interface {
+	sync.Locker
+	GetLocker() sync.Locker
+	GetLockerGenerator() locker.SyncLockerGenerator
+
 	StateName() string
-	SetStateName(name string)
 
 	GetIDMarshaler() IDMarshaler
-	SetIDMarshaler(IDMarshaler)
+	StateIDComponents() StateIDComponents
 
-	StateIDComponents() []any
-
-	GetLocker() sync.Locker
-
-	SetLockerGenerator(generator locker.SyncLockerGenerator) error
-	GetLockerGenerator() locker.SyncLockerGenerator
-	sync.Locker
+	Initialize(generator locker.SyncLockerGenerator, stateName string, idMarshaler IDMarshaler, idComponents StateIDComponents) error
 }
 
+type StateIDComponents []any
+
 func GetStateID(state State) (stateID string, err error) {
-	stateID, err = state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+	stateID, err = GetStateIDByComponents(state.GetIDMarshaler(), state.StateIDComponents())
 	if err != nil {
 		return
 	}
@@ -40,7 +39,16 @@ func GetStateID(state State) (stateID string, err error) {
 	return
 }
 
-func GetStateLockerByName(lockerGenerator locker.SyncLockerGenerator, stateName string) (sync.Locker, error) {
-	locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("state-locker-%v", stateName))
+func GetStateIDByComponents(idMarshaler IDMarshaler, stateIDComponents StateIDComponents) (stateID string, err error) {
+	stateID, err = idMarshaler.MarshalStateID(stateIDComponents...)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func GetStateLockerByName(lockerGenerator locker.SyncLockerGenerator, stateName, stateID string) (sync.Locker, error) {
+	locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("state-locker-%v-id-%v", stateName, stateID))
 	return locker, err
 }

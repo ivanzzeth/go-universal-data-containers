@@ -108,12 +108,15 @@ type StateManagement struct {
 }
 
 func MustNewStateManagement(lockerGenerator locker.SyncLockerGenerator, stateName, stateID, partition string) *StateManagement {
-	state := NewBaseState(lockerGenerator, "state_managements")
-	state.SetIDMarshaler(NewJsonIDMarshaler("_"))
+	m := &StateManagement{GormModel: GormModel{}, StateNamee: stateName, StateID: stateID, Partition: partition}
+	state, err := NewBaseState(lockerGenerator, "state_managements", NewJsonIDMarshaler("_"), m.StateIDComponents())
+	if err != nil {
+		panic(fmt.Errorf("failed to create base state: %v", err))
+	}
 
-	m := &StateManagement{BaseState: *state, GormModel: GormModel{}, StateNamee: stateName, StateID: stateID, Partition: partition}
+	m.BaseState = *state
 
-	err := m.FillID(m)
+	err = m.FillID(m)
 	if err != nil {
 		panic(fmt.Errorf("invalid stateID: %v", err))
 	}
@@ -121,7 +124,7 @@ func MustNewStateManagement(lockerGenerator locker.SyncLockerGenerator, stateNam
 	return m
 }
 
-func (u *StateManagement) StateIDComponents() []any {
+func (u *StateManagement) StateIDComponents() StateIDComponents {
 	return []any{&u.stateName, &u.StateID, &u.Partition}
 }
 
