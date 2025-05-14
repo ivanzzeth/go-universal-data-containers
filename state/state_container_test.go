@@ -1,6 +1,8 @@
 package state
 
 import (
+	"log"
+	"sync"
 	"testing"
 	"time"
 
@@ -97,59 +99,72 @@ func TestFinalizerStateContainer(t *testing.T) {
 		assert.NotEqual(t, err, ErrStateNotFound)
 	})
 
-	// t.Run("Multiple instances access states", func(t *testing.T) {
-	// 	lockGen := locker.NewMemoryLockerGenerator()
+	t.Run("Multiple instances access states", func(t *testing.T) {
+		lockGen := locker.NewMemoryLockerGenerator()
 
-	// 	user2Container := NewStateContainer(finalizer, MustNewTestUserModel(lockGen, "user2", "serve2"))
-	// 	user3Container := NewStateContainer(finalizer, MustNewTestUserModel(lockGen, "user3", "serve2"))
+		user2Container := NewStateContainer(finalizer, MustNewTestUserModel(lockGen, "user2", "serve2"))
+		user3Container := NewStateContainer(finalizer, MustNewTestUserModel(lockGen, "user3", "serve2"))
 
-	// 	// Simulate multiple instances
-	// 	var wg sync.WaitGroup
-	// 	errChan := make(chan error, 100)
-	// 	for i := 0; i < 10; i++ {
-	// 		wg.Add(1)
-	// 		go func() {
-	// 			defer wg.Done()
+		// Simulate multiple instances
+		var wg sync.WaitGroup
+		errChan := make(chan error, 100)
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
 
-	// 			log.Printf("goroutine: %d, user2 GetAndLock\n", i)
-	// 			user2, err := user2Container.GetAndLock()
-	// 			if err != nil {
-	// 				errChan <- err
-	// 			}
-	// 			defer user2.Unlock()
+				log.Printf("goroutine: %d, user2 GetAndLock\n", i)
+				user2, err := user2Container.GetAndLock()
+				if err != nil {
+					errChan <- err
+				}
+				defer user2.Unlock()
 
-	// 			log.Printf("goroutine: %d, user3 GetAndLock\n", i)
+				log.Printf("goroutine: %d, user3 GetAndLock\n", i)
 
-	// 			user3, err := user3Container.GetAndLock()
-	// 			if err != nil {
-	// 				errChan <- err
-	// 			}
-	// 			defer user3.Unlock()
+				user3, err := user3Container.GetAndLock()
+				if err != nil {
+					errChan <- err
+				}
+				defer user3.Unlock()
 
-	// 			log.Printf("goroutine: %d, Update\n", i)
+				log.Printf("goroutine: %d, Update\n", i)
 
-	// 			user2.Height++
-	// 			user3.Age++
+				user2.Height += 2
+				user3.Age++
 
-	// 			err = user2Container.Save()
-	// 			if err != nil {
-	// 				errChan <- err
-	// 			}
+				err = user2Container.Save()
+				if err != nil {
+					errChan <- err
+				}
 
-	// 			err = user3Container.Save()
-	// 			if err != nil {
-	// 				errChan <- err
-	// 			}
-	// 		}()
-	// 	}
+				err = user3Container.Save()
+				if err != nil {
+					errChan <- err
+				}
+			}()
+		}
 
-	// 	wg.Wait()
+		wg.Wait()
 
-	// 	close(errChan)
-	// 	for err := range errChan {
-	// 		if err != nil {
-	// 			t.Fatal(err)
-	// 		}
-	// 	}
-	// })
+		close(errChan)
+		for err := range errChan {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		newUser2, err := user2Container.Get()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		newUser3, err := user3Container.Get()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assert.Equal(t, 20, newUser2.Height)
+		assert.Equal(t, 10, newUser3.Age)
+	})
 }
