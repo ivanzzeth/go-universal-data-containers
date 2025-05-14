@@ -38,7 +38,7 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f.registry, f)
+				return NewSimpleStorageSnapshot(f.registry, f, f.SyncLockerGenerator)
 			}
 		}
 		snapshot := f.newSnapshot(f)
@@ -107,8 +107,8 @@ type StateManagement struct {
 	Partition  string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
 }
 
-func MustNewStateManagement(locker sync.Locker, stateName, stateID, partition string) *StateManagement {
-	state := NewBaseState(locker)
+func MustNewStateManagement(lockerGenerator locker.SyncLockerGenerator, stateName, stateID, partition string) *StateManagement {
+	state := NewBaseState(lockerGenerator)
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
 	state.SetStateName("state_managements")
@@ -292,7 +292,7 @@ func (s *GORMStorage) SaveStates(states ...State) error {
 
 		models = append(models, state)
 
-		sm := MustNewStateManagement(&sync.Mutex{}, state.StateName(), stateID, s.partition)
+		sm := MustNewStateManagement(locker.NewMemoryLockerGenerator(), state.StateName(), stateID, s.partition)
 
 		models = append(models, sm)
 

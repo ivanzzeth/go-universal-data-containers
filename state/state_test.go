@@ -2,7 +2,8 @@ package state
 
 import (
 	"fmt"
-	"sync"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 // Make sure (Name, Server) or (Name + Server) is unique, so that they can be composed as StateID
@@ -16,8 +17,8 @@ type TestUserModel struct {
 	Height    int
 }
 
-func MustNewTestUserModel(locker sync.Locker, name, server string) *TestUserModel {
-	state := NewBaseState(locker)
+func MustNewTestUserModel(lockerGenerator locker.SyncLockerGenerator, name, server string) *TestUserModel {
+	state := NewBaseState(lockerGenerator)
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
 	state.SetStateName("test_user_models")
@@ -50,7 +51,11 @@ func (u *TestUserModel) Get() error {
 	}
 
 	*u = *(state.(*TestUserModel))
-	u.SetLocker((state.(*TestUserModel)).GetLocker())
+	err = u.SetLockerGenerator((state.(*TestUserModel)).GetLockerGenerator())
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 

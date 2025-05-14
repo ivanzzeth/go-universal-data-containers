@@ -1,7 +1,6 @@
 package state
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -10,17 +9,17 @@ import (
 
 func TestCacheAndPersistFinalizer(t *testing.T) {
 	registry := NewSimpleRegistry()
-	err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
-	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
+	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
 	cache, _ := NewMemoryStorage(lockerGenerator, registry, cacheSnapshot, "")
 
-	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
+	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
 	persist, _ := NewMemoryStorage(lockerGenerator, registry, persistSnapshot, "")
 
 	ticker := time.NewTicker(2 * time.Second).C

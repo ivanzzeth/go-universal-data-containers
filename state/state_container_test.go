@@ -1,7 +1,6 @@
 package state
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -11,18 +10,18 @@ import (
 
 func TestFinalizerStateContainer(t *testing.T) {
 	registry := NewSimpleRegistry()
-	err := registry.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
-	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
+	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
 	cache, _ := NewMemoryStorage(lockerGenerator, registry, cacheSnapshot, "")
 	cacheSnapshot.SetStorageForSnapshot(cache)
 
-	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory)
+	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
 	persist, _ := NewMemoryStorage(lockerGenerator, registry, persistSnapshot, "")
 	persistSnapshot.SetStorageForSnapshot(persist)
 
@@ -30,7 +29,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 	finalizer := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)
 	defer finalizer.Close()
 
-	user1Container := NewStateContainer(finalizer, MustNewTestUserModel(&sync.Mutex{}, "user1", "server"))
+	user1Container := NewStateContainer(finalizer, MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server"))
 	user1, err := user1Container.Get()
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +62,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 	user1.Unlock()
 
 	// Load user1 from cache
-	newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(&sync.Mutex{}, "user1", "server")).Get()
+	newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")).Get()
 	if err != nil {
 		t.Fatal(err)
 	}

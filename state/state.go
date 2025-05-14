@@ -25,7 +25,9 @@ type State interface {
 	StateIDComponents() []any
 
 	GetLocker() sync.Locker
-	SetLocker(locker sync.Locker)
+
+	SetLockerGenerator(generator locker.SyncLockerGenerator) error
+	GetLockerGenerator() locker.SyncLockerGenerator
 	sync.Locker
 }
 

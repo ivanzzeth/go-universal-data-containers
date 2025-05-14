@@ -1,22 +1,22 @@
 package state
 
 import (
-	"sync"
 	"testing"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/stretchr/testify/assert"
 )
 
 func SpecTestRegistry(t *testing.T, r Registry) {
 	t.Run("RegisterState", func(t *testing.T) {
-		err := r.RegisterState(MustNewTestUserModel(&sync.Mutex{}, "", ""))
+		err := r.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
 		if err != nil {
 			t.Error(err)
 		}
 	})
 
 	t.Run("New state after registering", func(t *testing.T) {
-		userTemplate := MustNewTestUserModel(&sync.Mutex{}, "", "")
+		userTemplate := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", "")
 		err := r.RegisterState(userTemplate)
 		if err != nil {
 			t.Error(err)

@@ -32,7 +32,7 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f.registry, f)
+				return NewSimpleStorageSnapshot(f.registry, f, f.SyncLockerGenerator)
 			}
 		}
 		snapshot := f.newSnapshot(f)

@@ -1,9 +1,9 @@
 package state
 
 import (
-	"sync"
 	"testing"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -25,7 +25,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 
 	// Pattern1: LoadState then assert state as *TestUserModel
 	user1Name := "user1"
-	user1 := MustNewTestUserModel(&sync.Mutex{}, user1Name, "server")
+	user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), user1Name, "server")
 	user1StateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)
@@ -50,7 +50,7 @@ func SpecTestFinalizer(t *testing.T, finalizer Finalizer) {
 	}
 
 	// Pattern2:
-	newUser1 := MustNewTestUserModel(&sync.Mutex{}, user1Name, "server")
+	newUser1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), user1Name, "server")
 	err = newUser1.WithStateFinalizer(finalizer).Get()
 	if err != nil {
 		t.Fatal(err)

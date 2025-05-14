@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -20,8 +21,8 @@ type SnapshotState struct {
 	SnapshotID string `gorm:"not null;uniqueIndex"`
 }
 
-func MustNewSnapshotState(locker sync.Locker, snapshotId string) *SnapshotState {
-	state := NewBaseState(locker)
+func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, snapshotId string) *SnapshotState {
+	state := NewBaseState(lockerGenerator)
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
 	state.SetStateName("snapshot_states")
@@ -42,23 +43,25 @@ func (u *SnapshotState) StateIDComponents() []any {
 }
 
 type SimpleStorageSnapshot struct {
-	storage        Storage
-	setStorageOnce sync.Once
-	storageFactory StorageFactory
-	registry       Registry
+	storage         Storage
+	setStorageOnce  sync.Once
+	storageFactory  StorageFactory
+	lockerGenerator locker.SyncLockerGenerator
+	registry        Registry
 }
 
-func NewSimpleStorageSnapshot(registry Registry, storageFactory StorageFactory) *SimpleStorageSnapshot {
+func NewSimpleStorageSnapshot(registry Registry, storageFactory StorageFactory, lockerGenerator locker.SyncLockerGenerator) *SimpleStorageSnapshot {
 	return &SimpleStorageSnapshot{
-		storageFactory: storageFactory,
-		registry:       registry,
+		storageFactory:  storageFactory,
+		registry:        registry,
+		lockerGenerator: lockerGenerator,
 	}
 }
 
 func (s *SimpleStorageSnapshot) SetStorageForSnapshot(storage Storage) {
 	s.setStorageOnce.Do(func() {
 		s.storage = storage
-		s.registry.RegisterState(MustNewSnapshotState(&sync.Mutex{}, ""))
+		s.registry.RegisterState(MustNewSnapshotState(s.lockerGenerator, ""))
 	})
 }
 
@@ -149,14 +152,14 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 		return
 	}
 
-	snapshotState := MustNewSnapshotState(&sync.Mutex{}, "")
+	snapshotState := MustNewSnapshotState(s.lockerGenerator, "")
 	snapshotStateIds, err := sm.GetStateIDs(snapshotState.StateName())
 	if err != nil {
 		return
 	}
 
 	for _, snapshotStateId := range snapshotStateIds {
-		snapshot := MustNewSnapshotState(&sync.Mutex{}, "")
+		snapshot := MustNewSnapshotState(s.lockerGenerator, "")
 		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.SnapshotID)
 		if err != nil {
 			return
@@ -169,7 +172,7 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 }
 
 func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage, err error) {
-	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
+	snapshot := MustNewSnapshotState(s.lockerGenerator, snapshotID)
 	stateID, err := GetStateID(snapshot)
 	if err != nil {
 		return nil, err
@@ -198,14 +201,18 @@ func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage,
 }
 
 func (s *SimpleStorageSnapshot) createSnapshot(snapshotID string) (storage Storage, err error) {
-	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
-	snapshot.CreatedAt = time.Now()
-	snapshot.UpdatedAt = time.Now()
-
 	sm, err := s.getSnapshotManagementStorage()
 	if err != nil {
 		return
 	}
+
+	snapshot := MustNewSnapshotState(s.lockerGenerator, snapshotID)
+
+	snapshot.Lock()
+	defer snapshot.Unlock()
+
+	snapshot.CreatedAt = time.Now()
+	snapshot.UpdatedAt = time.Now()
 
 	err = sm.SaveStates(snapshot)
 	if err != nil {
@@ -246,7 +253,7 @@ func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
 		return
 	}
 
-	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
+	snapshot := MustNewSnapshotState(s.lockerGenerator, snapshotID)
 	err = sm.ClearStates(snapshot)
 	if err != nil {
 		return

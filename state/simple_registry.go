@@ -45,7 +45,11 @@ func (s *SimpleRegistry) NewState(name string) (State, error) {
 	state := stateInterface.(State)
 
 	state.SetStateName(name)
-	state.SetLocker(registered.(State).GetLocker())
+	err := state.SetLockerGenerator(registered.(State).GetLockerGenerator())
+	if err != nil {
+		return nil, err
+	}
+
 	state.SetIDMarshaler(registered.(State).GetIDMarshaler())
 	return state, nil
 }

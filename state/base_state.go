@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -11,15 +12,19 @@ var (
 )
 
 type BaseState struct {
-	stateName   string
-	idMarshaler IDMarshaler
-	locker      sync.Locker
+	stateName       string
+	idMarshaler     IDMarshaler
+	locker          sync.Locker
+	lockerGenerator locker.SyncLockerGenerator
 }
 
-func NewBaseState(locker sync.Locker) *BaseState {
-	return &BaseState{
-		locker: locker,
+func NewBaseState(lockerGenerator locker.SyncLockerGenerator) *BaseState {
+	s := &BaseState{}
+	if lockerGenerator != nil {
+		s.SetLockerGenerator(lockerGenerator)
 	}
+
+	return s
 }
 
 func (s *BaseState) StateName() string {
@@ -50,13 +55,20 @@ func (s *BaseState) GetLocker() sync.Locker {
 	return s.locker
 }
 
-func (s *BaseState) SetLocker(locker sync.Locker) {
-	s.locker = locker
+func (s *BaseState) SetLockerGenerator(generator locker.SyncLockerGenerator) (err error) {
+	s.lockerGenerator = generator
+	s.locker, err = generator.CreateSyncLocker(s.stateName)
+	return
+}
+
+func (s *BaseState) GetLockerGenerator() locker.SyncLockerGenerator {
+	return s.lockerGenerator
 }
 
 func (s *BaseState) Lock() {
 	s.locker.Lock()
 }
+
 func (s *BaseState) Unlock() {
 	s.locker.Unlock()
 }
