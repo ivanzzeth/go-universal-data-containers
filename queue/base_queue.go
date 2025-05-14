@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 	"time"
@@ -13,21 +14,26 @@ var (
 )
 
 type BaseQueue struct {
-	m           sync.Mutex
+	m           sync.Locker
 	name        string
 	config      *Config
 	cb          Handler
 	exitChannel chan int
 }
 
-func NewBaseQueue(name string, options *Config) *BaseQueue {
+func NewBaseQueue(name string, options *Config) (*BaseQueue, error) {
+	locker, err := options.LockerGenerator.CreateSyncLocker(fmt.Sprintf("queue-locker-%v", name))
+	if err != nil {
+		return nil, err
+	}
 	q := &BaseQueue{
+		m:           locker,
 		name:        name,
 		config:      options,
 		exitChannel: make(chan int),
 	}
 
-	return q
+	return q, nil
 }
 
 func (q *BaseQueue) Close() {
@@ -40,6 +46,10 @@ func (q *BaseQueue) Kind() Kind {
 
 func (q *BaseQueue) Name() string {
 	return q.name
+}
+
+func (q *BaseQueue) GetLocker() sync.Locker {
+	return q.m
 }
 
 func (q *BaseQueue) MaxSize() int {

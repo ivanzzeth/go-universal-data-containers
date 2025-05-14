@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -43,7 +44,12 @@ func (f *MemoryFactory) GetOrCreateSafe(name string, options ...Option) (SafeQue
 	f.m.Lock()
 	defer f.m.Unlock()
 	if _, ok := f.table[name]; !ok {
-		q, err := NewSimpleQueue(NewMemoryQueue(name, &ops))
+		mq, err := NewMemoryQueue(name, &ops)
+		if err != nil {
+			return nil, err
+		}
+
+		q, err := NewSimpleQueue(mq)
 		if err != nil {
 			return nil, err
 		}
@@ -55,18 +61,23 @@ func (f *MemoryFactory) GetOrCreateSafe(name string, options ...Option) (SafeQue
 
 type MemoryQueue struct {
 	*BaseQueue
-	queue [][]byte
-	cb    Handler
+	queue     [][]byte
+	callbacks []Handler
 }
 
-func NewMemoryQueue(name string, options *Config) *MemoryQueue {
+func NewMemoryQueue(name string, options *Config) (*MemoryQueue, error) {
+	baseQueue, err := NewBaseQueue(name, options)
+	if err != nil {
+		return nil, err
+	}
+
 	q := &MemoryQueue{
-		BaseQueue: NewBaseQueue(name, options),
+		BaseQueue: baseQueue,
 	}
 
 	go q.run()
 
-	return q
+	return q, nil
 }
 
 func (q *MemoryQueue) Close() {
@@ -87,8 +98,8 @@ func (q *MemoryQueue) Enqueue(data []byte) error {
 		return err
 	}
 
-	q.m.Lock()
-	defer q.m.Unlock()
+	q.GetLocker().Lock()
+	defer q.GetLocker().Unlock()
 
 	if q.MaxSize() > 0 && len(q.queue) >= q.MaxSize() {
 		return ErrQueueFull
@@ -104,8 +115,8 @@ func (q *MemoryQueue) Enqueue(data []byte) error {
 }
 
 func (q *MemoryQueue) Dequeue() (Message, error) {
-	q.m.Lock()
-	defer q.m.Unlock()
+	q.GetLocker().Lock()
+	defer q.GetLocker().Unlock()
 	if len(q.queue) > 0 {
 		packedData := q.queue[0]
 		q.queue = q.queue[1:]
@@ -126,7 +137,7 @@ func (q *MemoryQueue) Dequeue() (Message, error) {
 }
 
 func (q *MemoryQueue) Subscribe(cb Handler) {
-	q.cb = cb
+	q.callbacks = append(q.callbacks, cb)
 }
 
 func (q *MemoryQueue) run() {
@@ -136,10 +147,14 @@ Loop:
 		case <-q.exitChannel:
 			break Loop
 		default:
-			if q.cb == nil {
+			if q.callbacks == nil {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
+
+			// Randomly pick up one.
+			index := rand.Intn(len(q.callbacks))
+			cb := q.callbacks[index]
 
 			msg, err := q.Dequeue()
 			if err != nil {
@@ -147,7 +162,9 @@ Loop:
 				continue Loop
 			}
 
-			q.cb(msg)
+			cb(msg)
+
+			time.Sleep(q.config.PollInterval)
 		}
 	}
 }
@@ -166,15 +183,15 @@ func (q *MemoryQueue) Recover(msg Message) error {
 		return err
 	}
 
-	q.m.Lock()
-	defer q.m.Unlock()
+	q.GetLocker().Lock()
+	defer q.GetLocker().Unlock()
 	q.queue = append([][]byte{packedData}, q.queue...)
 	return nil
 }
 
 func (q *MemoryQueue) Purge() error {
-	q.m.Lock()
-	defer q.m.Unlock()
+	q.GetLocker().Lock()
+	defer q.GetLocker().Unlock()
 	q.queue = nil
 	return nil
 }

@@ -10,10 +10,14 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
 	queueOptions = Config{
+		LockerGenerator: locker.NewMemoryLockerGenerator(),
+
 		MaxSize:           255,
 		MaxHandleFailures: 3,
 

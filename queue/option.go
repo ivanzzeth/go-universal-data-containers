@@ -3,6 +3,7 @@ package queue
 import (
 	"time"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/ivanzzeth/go-universal-data-containers/message"
 )
 
@@ -10,6 +11,8 @@ var (
 	DefaultPollInterval = 10 * time.Millisecond
 	DefaultMaxRetries   = 10
 	DefaultOptions      = Config{
+		LockerGenerator: locker.NewMemoryLockerGenerator(),
+
 		MaxSize: UnlimitedSize,
 
 		MaxHandleFailures: 10,
@@ -29,6 +32,8 @@ type Option func(*Config)
 
 // Configuarable options here, but some implementations of queue may not support all options
 type Config struct {
+	LockerGenerator locker.SyncLockerGenerator
+
 	MaxSize int
 
 	// Messages will be discarded after this many failures, or

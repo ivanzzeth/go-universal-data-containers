@@ -1,0 +1,206 @@
+package time
+
+import (
+	"errors"
+	"fmt"
+	"sync/atomic"
+	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
+	"github.com/ivanzzeth/go-universal-data-containers/queue"
+	"github.com/ivanzzeth/go-universal-data-containers/state"
+)
+
+const (
+	tickerInterval = 10 * time.Millisecond
+)
+
+type Ticker interface {
+	Close()
+	SetEnabled(enabled bool)
+	Tick() <-chan time.Time
+}
+
+type DistributedTicker struct {
+	name string
+	q    queue.Queue
+	// locker          sync.Locker
+	lockerGenerator locker.SyncLockerGenerator
+	registry        state.Registry
+	storage         state.Storage
+
+	enabled     atomic.Bool
+	ticker      *time.Ticker
+	tickOut     chan time.Time
+	interval    time.Duration
+	exitChannel chan struct{}
+}
+
+func NewDistributedTicker(name string, d time.Duration, registry state.Registry, storage state.Storage, lockerGenerator locker.SyncLockerGenerator, qf queue.Factory) (*DistributedTicker, error) {
+	// locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("ticker-locker-%v", name))
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	q, err := qf.GetOrCreateSafe(fmt.Sprintf("ticker-queue-%v", name))
+	if err != nil {
+		return nil, err
+	}
+
+	err = registry.RegisterState(MustNewTickerState(lockerGenerator, name))
+	if err != nil {
+		return nil, err
+	}
+
+	t := &DistributedTicker{
+		name: name,
+		q:    q,
+		// locker:          locker,
+		lockerGenerator: lockerGenerator,
+		registry:        registry,
+		storage:         storage,
+		enabled:         atomic.Bool{},
+		ticker:          time.NewTicker(d),
+		tickOut:         make(chan time.Time),
+		interval:        d,
+		exitChannel:     make(chan struct{}),
+	}
+
+	// log.Printf("New distributed ticker %p, queue: %p, storage: %p\n", t, q, storage)
+
+	t.enabled.Store(true)
+
+	go t.run()
+
+	return t, nil
+}
+
+func (d *DistributedTicker) Close() {
+	close(d.exitChannel)
+}
+
+func (d *DistributedTicker) SetEnabled(enabled bool) {
+	d.enabled.Store(enabled)
+}
+
+func (d *DistributedTicker) Tick() <-chan time.Time {
+	return d.tickOut
+}
+
+func (d *DistributedTicker) run() {
+	go func() {
+		// log.Printf("Subscribe to ticker queue, ticker %p, queue: %p\n", d, d.q)
+		d.q.Subscribe(func(msg queue.Message) error {
+			// log.Printf("Received tick, ticker %p, queue: %p\n", d, d.q)
+			select {
+			case d.tickOut <- time.Now():
+				// log.Printf("Send tick\n")
+			case <-time.NewTimer(d.interval / 2).C:
+				// log.Printf("Send tick timeout\n")
+				return nil
+			}
+
+			return nil
+		})
+	}()
+
+	for {
+		select {
+		case <-d.exitChannel:
+			return
+		case <-d.ticker.C:
+			err := func() (err error) {
+				if !d.enabled.Load() {
+					return fmt.Errorf("ticker is disabled")
+				}
+
+				stateTmp := MustNewTickerState(d.lockerGenerator, d.name)
+				stateID, err := state.GetStateID(stateTmp)
+				if err != nil {
+					return
+				}
+
+				// log.Printf("tick3\n")
+
+				stateLocker, err := state.GetStateLockerByName(d.lockerGenerator, stateTmp.StateName(), stateID)
+				if err != nil {
+					return
+				}
+
+				// log.Printf("tick4\n")
+
+				stateLocker.Lock()
+				defer stateLocker.Unlock()
+
+				tState, err := d.storage.LoadState(stateTmp.StateName(), stateID)
+				if err != nil {
+					if !errors.Is(err, state.ErrStateNotFound) {
+						return
+					}
+
+					tState = stateTmp
+				}
+
+				// log.Printf("tick5\n")
+
+				tickerState, ok := tState.(*TickerState)
+				if !ok {
+					return fmt.Errorf("failed to cast state to TickerState")
+				}
+
+				if time.Since(tickerState.LastTickTime) <= d.interval {
+					return fmt.Errorf("not time to tick. lastTime: %v, now: %v", tickerState.LastTickTime, time.Now())
+				}
+
+				// log.Printf("tick6\n")
+
+				tickerState.LastTickTime = time.Now()
+
+				err = d.q.Enqueue([]byte{})
+				if err != nil {
+					return
+				}
+
+				// log.Printf("tick7\n")
+
+				err = d.storage.SaveStates(tickerState)
+				if err != nil {
+					return
+				}
+
+				// log.Printf("tick8\n")
+
+				return
+			}()
+			if err != nil {
+				// TODO: logging
+				// log.Printf("failed to tick: %v\n", err)
+			}
+
+			time.Sleep(tickerInterval)
+		}
+	}
+}
+
+type TickerState struct {
+	state.BaseState
+	Name         string
+	LastTickTime time.Time
+}
+
+func MustNewTickerState(lockerGenerator locker.SyncLockerGenerator, name string) *TickerState {
+	f := &TickerState{Name: name}
+
+	state, err := state.NewBaseState(lockerGenerator, "ticker_states", state.NewBase64IDMarshaler("_"), f.StateIDComponents())
+	if err != nil {
+		panic(fmt.Errorf("failed to create base state: %v", err))
+	}
+
+	f.BaseState = *state
+
+	return f
+}
+
+func (u *TickerState) StateIDComponents() state.StateIDComponents {
+	return []any{&u.Name}
+}

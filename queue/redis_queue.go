@@ -78,7 +78,11 @@ type RedisQueue struct {
 }
 
 func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQueue, error) {
-	baseQueue := NewBaseQueue(name, options)
+	baseQueue, err := NewBaseQueue(name, options)
+	if err != nil {
+		return nil, err
+	}
+
 	queue, err := conn.OpenQueue(name)
 	if err != nil {
 		return nil, err
@@ -149,8 +153,8 @@ func (q *RedisQueue) Enqueue(data []byte) error {
 		return err
 	}
 
-	q.m.Lock()
-	defer q.m.Unlock()
+	q.GetLocker().Lock()
+	defer q.GetLocker().Unlock()
 
 	packedData, err := q.Pack(data)
 	if err != nil {

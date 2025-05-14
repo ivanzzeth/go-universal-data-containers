@@ -3,7 +3,8 @@ package queue
 import "testing"
 
 func TestSafeQueueSequencial(t *testing.T) {
-	q, err := NewSimpleQueue(NewMemoryQueue("", &queueOptions))
+	mq, _ := NewMemoryQueue("", &queueOptions)
+	q, err := NewSimpleQueue(mq)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -11,7 +12,8 @@ func TestSafeQueueSequencial(t *testing.T) {
 }
 
 func TestSafeQueueConcurrent(t *testing.T) {
-	q, err := NewSimpleQueue(NewMemoryQueue("", &queueOptions))
+	mq, _ := NewMemoryQueue("", &queueOptions)
+	q, err := NewSimpleQueue(mq)
 	if err != nil {
 		t.Fatal(err)
 	}
