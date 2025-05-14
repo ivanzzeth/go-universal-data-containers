@@ -17,13 +17,15 @@ func TestCacheAndPersistFinalizer(t *testing.T) {
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
 	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
-	cache, _ := NewMemoryStorage(lockerGenerator, registry, cacheSnapshot, "")
+	cache, _ := NewMemoryStorage(lockerGenerator, registry, cacheSnapshot, "cache")
 
 	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
-	persist, _ := NewMemoryStorage(lockerGenerator, registry, persistSnapshot, "")
+	persist, _ := NewMemoryStorage(lockerGenerator, registry, persistSnapshot, "persist")
 
-	ticker := time.NewTicker(2 * time.Second).C
-	f := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)
+	f := NewCacheAndPersistFinalizer(100*time.Millisecond, registry, lockerGenerator, cache, persist, "")
 	defer f.Close()
-	SpecTestFinalizer(t, f)
+
+	SpecTestFinalizer(t, lockerGenerator, f, func() Finalizer {
+		return NewCacheAndPersistFinalizer(100*time.Millisecond, registry, lockerGenerator, cache, persist, "")
+	})
 }

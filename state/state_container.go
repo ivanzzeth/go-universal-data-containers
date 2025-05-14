@@ -82,6 +82,31 @@ func (s *StateContainer[T]) Get() (T, error) {
 	return s.state, nil
 }
 
+func (s *StateContainer[T]) GetFromPersist() (T, error) {
+	if len(s.state.StateIDComponents()) == 0 {
+		return s.nilState(), ErrStateIDComponents
+	}
+
+	stateID, err := GetStateID(s.state)
+	if err != nil {
+		return s.state, err
+	}
+
+	state, err := s.finalizer.GetPersistStorage().LoadState(s.state.StateName(), stateID)
+	if err != nil {
+		if !errors.Is(err, ErrStateNotFound) {
+			return s.nilState(), err
+		}
+
+		// Not found, then using initial state
+		return s.state, nil
+	}
+
+	s.state = state.(T)
+
+	return s.state, nil
+}
+
 func (s *StateContainer[T]) Unwrap() T {
 	return s.state
 }

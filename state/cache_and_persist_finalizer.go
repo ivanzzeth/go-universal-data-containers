@@ -2,8 +2,11 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -11,9 +14,13 @@ var (
 )
 
 type CacheAndPersistFinalizer struct {
-	ticker <-chan time.Time
+	ticker   <-chan time.Time
+	interval time.Duration
 
-	registry Registry
+	registry        Registry
+	lockerGenerator locker.SyncLockerGenerator
+	name            string
+
 	StorageSnapshot
 	cache               Storage
 	persist             Storage
@@ -21,10 +28,26 @@ type CacheAndPersistFinalizer struct {
 	exitChannel         chan struct{}
 }
 
-func NewCacheAndPersistFinalizer(ticker <-chan time.Time, registry Registry, cache Storage, persist Storage) *CacheAndPersistFinalizer {
+func NewCacheAndPersistFinalizer(interval time.Duration, registry Registry, lockerGenerator locker.SyncLockerGenerator, cache Storage, persist Storage, name string) *CacheAndPersistFinalizer {
+	ticker := time.NewTicker(interval).C
+
+	if name == "" {
+		name = "default"
+	}
+
+	err := registry.RegisterState(MustNewFinalizeState(lockerGenerator, name))
+	if err != nil {
+		panic(fmt.Errorf("failed to register finalize state: %v", err))
+	}
+
 	f := &CacheAndPersistFinalizer{
-		ticker:          ticker,
-		registry:        registry,
+		ticker:   ticker,
+		interval: interval,
+
+		registry: registry,
+		name:     name,
+
+		lockerGenerator: lockerGenerator,
 		StorageSnapshot: cache,
 		cache:           cache,
 		persist:         persist,
@@ -35,6 +58,29 @@ func NewCacheAndPersistFinalizer(ticker <-chan time.Time, registry Registry, cac
 	go f.run()
 
 	return f
+}
+
+type FinalizeState struct {
+	BaseState
+	Name             string
+	LastFinalizeTime time.Time
+}
+
+func MustNewFinalizeState(lockerGenerator locker.SyncLockerGenerator, name string) *FinalizeState {
+	f := &FinalizeState{Name: name}
+
+	state, err := NewBaseState(lockerGenerator, "finalize_states", NewBase64IDMarshaler("_"), f.StateIDComponents())
+	if err != nil {
+		panic(fmt.Errorf("failed to create base state: %v", err))
+	}
+
+	f.BaseState = *state
+
+	return f
+}
+
+func (u *FinalizeState) StateIDComponents() StateIDComponents {
+	return []any{&u.Name}
 }
 
 func (s *CacheAndPersistFinalizer) Close() {
@@ -148,6 +194,18 @@ func (s *CacheAndPersistFinalizer) EnableAutoFinalizeAllCachedStates(enable bool
 	s.autoFinalizeEnabled.Store(enable)
 }
 
+func (s *CacheAndPersistFinalizer) GetAutoFinalizeInterval() time.Duration {
+	return s.interval
+}
+
+func (s *CacheAndPersistFinalizer) GetCacheStorage() Storage {
+	return s.cache
+}
+
+func (s *CacheAndPersistFinalizer) GetPersistStorage() Storage {
+	return s.persist
+}
+
 func (s *CacheAndPersistFinalizer) run() {
 	for {
 		select {
@@ -155,12 +213,58 @@ func (s *CacheAndPersistFinalizer) run() {
 			return
 		case <-s.ticker:
 			if s.autoFinalizeEnabled.Load() {
-				err := s.FinalizeAllCachedStates()
-				if err != nil {
-					// TODO: logging
-					// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)
-					continue
-				}
+				func() {
+					// log.Printf("FinalizeAllCachedStates started..., finalizer: %p\n", s)
+
+					stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name))
+
+					// log.Printf("FinalizeAllCachedStates getAndLock..., finalizer: %p\n", s)
+
+					finalizeState, err := stateContainer.GetAndLock()
+					// log.Printf("FinalizeAllCachedStates getAndLock2..., finalizer: %p\n", s)
+
+					if err != nil {
+						// TODO: logging
+						// log.Printf("FinalizeAllCachedStates getAndLock3..., finalizer: %p, err: %v\n", s, err)
+						return
+					}
+					// var finalized bool
+
+					// defer func() {
+					// 	if finalized {
+					// 		log.Printf("FinalizeAllCachedStates finalized..., finalizer: %p\n", s)
+					// 	}
+					// }()
+
+					defer finalizeState.Unlock()
+
+					// Double check lastTime
+					// log.Printf("FinalizeAllCachedStates check lastTime..., finalizer: %p\n", s)
+
+					if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
+						return
+					}
+
+					// log.Printf("FinalizeAllCachedStates finalizing..., finalizer: %p\n", s)
+
+					finalizeState.LastFinalizeTime = time.Now()
+
+					err = s.FinalizeAllCachedStates()
+					if err != nil {
+						// TODO: logging
+						// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)
+						return
+					}
+
+					err = stateContainer.Save()
+					if err != nil {
+						// TODO: logging
+						// fmt.Printf("Save failed: %v\n", err)
+						return
+					}
+
+					// finalized = true
+				}()
 			}
 
 			time.Sleep(10 * time.Millisecond)

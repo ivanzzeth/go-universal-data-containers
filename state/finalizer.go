@@ -1,5 +1,7 @@
 package state
 
+import "time"
+
 type Finalizer interface {
 	StorageSnapshot
 	LoadState(name string, id string) (State, error)
@@ -13,7 +15,12 @@ type Finalizer interface {
 	FinalizeSnapshot(snapshotID string) error
 	FinalizeAllCachedStates() error
 	ClearAllCachedStates() error
+
 	EnableAutoFinalizeAllCachedStates(enable bool)
+	GetAutoFinalizeInterval() time.Duration
+
+	GetCacheStorage() Storage
+	GetPersistStorage() Storage
 
 	Close()
 }

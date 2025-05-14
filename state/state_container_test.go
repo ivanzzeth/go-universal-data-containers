@@ -29,8 +29,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 	persist, _ := NewMemoryStorage(lockerGenerator, registry, persistSnapshot, "")
 	persistSnapshot.SetStorageForSnapshot(persist)
 
-	ticker := time.NewTicker(2 * time.Second).C
-	finalizer := NewCacheAndPersistFinalizer(ticker, registry, cache, persist)
+	finalizer := NewCacheAndPersistFinalizer(2*time.Second, registry, lockerGenerator, cache, persist, "")
 	defer finalizer.Close()
 
 	t.Run("Single instance access states", func(t *testing.T) {
