@@ -1,6 +1,8 @@
 package locker
 
-import "sync"
+import (
+	"sync"
+)
 
 var (
 	_ SyncLockerGenerator   = (*MemoryLockerGenerator)(nil)
@@ -17,6 +19,8 @@ func NewMemoryLockerGenerator() *MemoryLockerGenerator {
 
 func (g *MemoryLockerGenerator) CreateSyncLocker(name string) (sync.Locker, error) {
 	lv, _ := g.table.LoadOrStore(name, &sync.Mutex{})
+	// fmt.Printf("CreateSyncLocker: name: %v, locker: %p\n", name, lv)
+
 	return lv.(*sync.Mutex), nil
 }
 
@@ -30,5 +34,6 @@ func NewMemoryRWLockerGenerator() *MemoryRWLockerGenerator {
 
 func (g *MemoryRWLockerGenerator) CreateSyncRWLocker(name string) (sync.Locker, error) {
 	lv, _ := g.table.LoadOrStore(name, &sync.Mutex{})
+	// fmt.Printf("CreateSyncRWLocker: name: %v, locker: %p\n", name, lv)
 	return lv.(*sync.Mutex), nil
 }

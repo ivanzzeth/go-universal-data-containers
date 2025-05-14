@@ -22,10 +22,9 @@ type SnapshotState struct {
 }
 
 func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, snapshotId string) *SnapshotState {
-	state := NewBaseState(lockerGenerator)
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
-	state.SetStateName("snapshot_states")
+	state := NewBaseState(lockerGenerator, "snapshot_states")
 	state.SetIDMarshaler(NewBase64IDMarshaler("_"))
 
 	m := &SnapshotState{BaseState: *state, GormModel: GormModel{}, SnapshotID: snapshotId}

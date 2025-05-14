@@ -108,11 +108,7 @@ type StateManagement struct {
 }
 
 func MustNewStateManagement(lockerGenerator locker.SyncLockerGenerator, stateName, stateID, partition string) *StateManagement {
-	state := NewBaseState(lockerGenerator)
-	// Make sure that it's compatible for all storages you want to use
-	// For GORMStorage and MemoryStorage, it is ok.
-	state.SetStateName("state_managements")
-	// state.SetIDMarshaler(NewBase64IDMarshaler("_"))
+	state := NewBaseState(lockerGenerator, "state_managements")
 	state.SetIDMarshaler(NewJsonIDMarshaler("_"))
 
 	m := &StateManagement{BaseState: *state, GormModel: GormModel{}, StateNamee: stateName, StateID: stateID, Partition: partition}

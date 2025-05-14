@@ -18,8 +18,8 @@ type BaseState struct {
 	lockerGenerator locker.SyncLockerGenerator
 }
 
-func NewBaseState(lockerGenerator locker.SyncLockerGenerator) *BaseState {
-	s := &BaseState{}
+func NewBaseState(lockerGenerator locker.SyncLockerGenerator, stateName string) *BaseState {
+	s := &BaseState{stateName: stateName}
 	if lockerGenerator != nil {
 		s.SetLockerGenerator(lockerGenerator)
 	}
@@ -57,7 +57,7 @@ func (s *BaseState) GetLocker() sync.Locker {
 
 func (s *BaseState) SetLockerGenerator(generator locker.SyncLockerGenerator) (err error) {
 	s.lockerGenerator = generator
-	s.locker, err = generator.CreateSyncLocker(s.stateName)
+	s.locker, err = GetStateLockerByName(s.lockerGenerator, s.stateName)
 	return
 }
 

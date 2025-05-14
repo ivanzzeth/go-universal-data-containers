@@ -75,7 +75,7 @@ func NewMemoryStorage(lockerGenerator locker.SyncLockerGenerator, registry Regis
 		name = "default"
 	}
 
-	locker, err := GetStateLockerByName(lockerGenerator, name)
+	locker, err := GetStorageLockerByName(lockerGenerator, name)
 	if err != nil {
 		return nil, err
 	}

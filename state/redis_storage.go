@@ -84,7 +84,7 @@ func NewRedisStorage(lockerGenerator locker.SyncLockerGenerator, redisClient *re
 		partition = "default"
 	}
 
-	locker, err := GetStateLockerByName(lockerGenerator, partition)
+	locker, err := GetStorageLockerByName(lockerGenerator, partition)
 	if err != nil {
 		return nil, err
 	}

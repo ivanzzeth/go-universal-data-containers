@@ -3,6 +3,7 @@ package state
 import (
 	"errors"
 	"reflect"
+	"sync"
 )
 
 type StateContainer[T State] struct {
@@ -22,16 +23,32 @@ func (s *StateContainer[T]) Wrap(state T) *StateContainer[T] {
 	return s
 }
 
-// func (s *StateContainer[T]) GetAndLock() (T, error) {
+func (s *StateContainer[T]) GetLocker() (sync.Locker, error) {
+	return GetStateLockerByName(s.state.GetLockerGenerator(), s.state.StateName())
+}
 
-// }
+func (s *StateContainer[T]) GetAndLock() (T, error) {
+	locker, err := s.GetLocker()
+	if err != nil {
+		return s.nilState(), err
+	}
+
+	// fmt.Printf("GetAndLock, name: %v locker: %p, generator: %p\n",
+	// 	s.state.StateName(), locker, s.state.GetLockerGenerator())
+
+	// Lock first
+	locker.Lock()
+
+	// then get the value
+	return s.Get()
+}
 
 func (s *StateContainer[T]) Get() (T, error) {
 	if len(s.state.StateIDComponents()) == 0 {
-		return reflect.New(reflect.TypeOf(s.state)).Elem().Interface().(T), ErrStateIDComponents
+		return s.nilState(), ErrStateIDComponents
 	}
 
-	stateID, err := s.state.GetIDMarshaler().MarshalStateID(s.state.StateIDComponents()...)
+	stateID, err := GetStateID(s.state)
 	if err != nil {
 		return s.state, err
 	}
@@ -39,7 +56,7 @@ func (s *StateContainer[T]) Get() (T, error) {
 	state, err := s.finalizer.LoadState(s.state.StateName(), stateID)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
-			return reflect.New(reflect.TypeOf(s.state)).Elem().Interface().(T), err
+			return s.nilState(), err
 		}
 
 		// Not found, then using initial state
@@ -65,4 +82,8 @@ func (s *StateContainer[T]) Delete() error {
 
 func (s *StateContainer[T]) DeleteCache() error {
 	return s.finalizer.ClearCacheStates(s.state)
+}
+
+func (s *StateContainer[T]) nilState() T {
+	return reflect.New(reflect.TypeOf(s.state)).Elem().Interface().(T)
 }

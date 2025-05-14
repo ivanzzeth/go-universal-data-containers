@@ -18,10 +18,9 @@ type TestUserModel struct {
 }
 
 func MustNewTestUserModel(lockerGenerator locker.SyncLockerGenerator, name, server string) *TestUserModel {
-	state := NewBaseState(lockerGenerator)
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
-	state.SetStateName("test_user_models")
+	state := NewBaseState(lockerGenerator, "test_user_models")
 	state.SetIDMarshaler(NewBase64IDMarshaler("-"))
 
 	m := &TestUserModel{BaseState: *state, Name: name, Server: server}

@@ -30,7 +30,11 @@ func TestFinalizerStateContainer(t *testing.T) {
 	defer finalizer.Close()
 
 	user1Container := NewStateContainer(finalizer, MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server"))
-	user1, err := user1Container.Get()
+	// Use sync.Locker to make sure concurrent safety accross
+	// 1. go-routines if the implementation of sync.Locker is like sync.Mutex or
+	// 2. micro-services if the implementation of sync.Locker is distributed locker.
+	user1, err := user1Container.GetAndLock()
+	// user1, err := user1Container.Get()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,10 +50,8 @@ func TestFinalizerStateContainer(t *testing.T) {
 	}
 
 	// Change the value in memory.
-	// Use sync.Locker to make sure concurrent safety accross
-	// 1. go-routines if the implementation of sync.Locker is like sync.Mutex or
-	// 2. micro-services if the implementation of sync.Locker is distributed locker.
-	user1.Lock()
+	// Locked before
+	// user1.Lock()
 	user1.Age = 18
 	user1.Height = 180
 
@@ -59,6 +61,8 @@ func TestFinalizerStateContainer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// fmt.Printf("User, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
+
 	user1.Unlock()
 
 	// Load user1 from cache
