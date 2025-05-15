@@ -167,26 +167,46 @@ func (s *RedisStorage) LoadAllStates() ([]State, error) {
 
 	var states []State
 
-	for _, name := range names {
-		time.Sleep(s.delay)
+	var wg sync.WaitGroup
+	errsChan := make(chan error, len(names))
 
-		results, err := s.redisClient.HVals(context.Background(), s.getStateKey(name)).Result()
+	for _, name := range names {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			time.Sleep(s.delay)
+
+			results, err := s.redisClient.HVals(context.Background(), s.getStateKey(name)).Result()
+			if err != nil {
+				errsChan <- err
+				return
+			}
+
+			for _, res := range results {
+				state, err := s.registry.NewState(name)
+				if err != nil {
+					errsChan <- err
+					return
+				}
+
+				err = json.Unmarshal([]byte(res), state)
+				if err != nil {
+					errsChan <- err
+					return
+				}
+
+				states = append(states, state)
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errsChan)
+
+	for err := range errsChan {
 		if err != nil {
 			return nil, err
-		}
-
-		for _, res := range results {
-			state, err := s.registry.NewState(name)
-			if err != nil {
-				return nil, err
-			}
-
-			err = json.Unmarshal([]byte(res), state)
-			if err != nil {
-				return nil, err
-			}
-
-			states = append(states, state)
 		}
 	}
 
@@ -248,33 +268,54 @@ func (s *RedisStorage) SaveStates(states ...State) error {
 		statesToSave[state.StateName()][id] = string(val)
 	}
 
+	var wg sync.WaitGroup
+	errsChan := make(chan error, len(statesToSave))
 	for stateName, kv := range statesToSave {
-		time.Sleep(s.delay)
+		wg.Add(1)
 
-		_, err := s.redisClient.HSet(context.Background(), s.getStateKey(stateName), kv).Result()
+		go func() {
+			defer wg.Done()
+
+			time.Sleep(s.delay)
+
+			_, err := s.redisClient.HSet(context.Background(), s.getStateKey(stateName), kv).Result()
+			if err != nil {
+				errsChan <- err
+				return
+			}
+
+			time.Sleep(s.delay)
+
+			idsSlice, err := s.redisClient.HKeys(context.Background(), s.getStateKey(stateName)).Result()
+			if err != nil {
+				errsChan <- err
+				return
+			}
+
+			ids := strings.Join(idsSlice, ",")
+
+			time.Sleep(s.delay)
+
+			// fmt.Printf("SaveStates: stateName=%v, kv=%v, ids=%v\n", stateName, kv, ids)
+			_, err = s.redisClient.HSet(context.Background(), s.getStateIdKey(), stateName, ids).Result()
+			if err != nil {
+				errsChan <- err
+				return
+			}
+
+			// idsSaved, _ := s.GetStateIDs(stateName)
+			// fmt.Printf("SaveStates after: idsSaved=%v\n", idsSaved)
+		}()
+
+	}
+
+	wg.Wait()
+	close(errsChan)
+
+	for err := range errsChan {
 		if err != nil {
 			return err
 		}
-
-		time.Sleep(s.delay)
-
-		idsSlice, err := s.redisClient.HKeys(context.Background(), s.getStateKey(stateName)).Result()
-		if err != nil {
-			return err
-		}
-
-		ids := strings.Join(idsSlice, ",")
-
-		time.Sleep(s.delay)
-
-		// fmt.Printf("SaveStates: stateName=%v, kv=%v, ids=%v\n", stateName, kv, ids)
-		_, err = s.redisClient.HSet(context.Background(), s.getStateIdKey(), stateName, ids).Result()
-		if err != nil {
-			return err
-		}
-
-		// idsSaved, _ := s.GetStateIDs(stateName)
-		// fmt.Printf("SaveStates after: idsSaved=%v\n", idsSaved)
 	}
 
 	// names, _ := s.GetStateNames()
@@ -285,17 +326,36 @@ func (s *RedisStorage) SaveStates(states ...State) error {
 }
 
 func (s *RedisStorage) ClearStates(states ...State) (err error) {
+	var wg sync.WaitGroup
+	errChan := make(chan error, len(states))
+
 	for _, state := range states {
-		id, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			id, err := state.GetIDMarshaler().MarshalStateID(state.StateIDComponents()...)
+			if err != nil {
+				errChan <- err
+				return
+			}
+
+			time.Sleep(s.delay)
+
+			_, err = s.redisClient.HDel(context.Background(), s.getStateKey(state.StateName()), id).Result()
+			if err != nil {
+				errChan <- fmt.Errorf("clear all states failed: %v", err)
+				return
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	for err := range errChan {
 		if err != nil {
 			return err
-		}
-
-		time.Sleep(s.delay)
-
-		_, err = s.redisClient.HDel(context.Background(), s.getStateKey(state.StateName()), id).Result()
-		if err != nil {
-			return fmt.Errorf("clear all states failed: %v", err)
 		}
 	}
 
@@ -308,12 +368,30 @@ func (s *RedisStorage) ClearAllStates() error {
 		return fmt.Errorf("get all state names failed: %v", err)
 	}
 
-	for _, name := range names {
-		time.Sleep(s.delay)
+	var wg sync.WaitGroup
+	errsChan := make(chan error, len(names))
 
-		_, err = s.redisClient.Del(context.Background(), s.getStateKey(name)).Result()
+	for _, name := range names {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			time.Sleep(s.delay)
+
+			_, err = s.redisClient.Del(context.Background(), s.getStateKey(name)).Result()
+			if err != nil {
+				errsChan <- fmt.Errorf("clear all states failed: %v", err)
+				return
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errsChan)
+
+	for err := range errsChan {
 		if err != nil {
-			return fmt.Errorf("clear all states failed: %v", err)
+			return err
 		}
 	}
 

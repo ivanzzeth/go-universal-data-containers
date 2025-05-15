@@ -36,7 +36,7 @@ func BenchmarkRedisStorageWith2msLatency(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	storage.setDelay(2 * time.Millisecond)
+	storage.setDelay(10 * time.Millisecond)
 	SpecBenchmarkStorage(b, registry, storage)
 }
 
