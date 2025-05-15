@@ -35,7 +35,7 @@ func NewCacheAndPersistFinalizer(interval time.Duration, registry Registry, lock
 		name = "default"
 	}
 
-	err := registry.RegisterState(MustNewFinalizeState(lockerGenerator, name))
+	err := registry.RegisterState(MustNewFinalizeState(lockerGenerator, name, name))
 	if err != nil {
 		panic(fmt.Errorf("failed to register finalize state: %v", err))
 	}
@@ -67,8 +67,8 @@ type FinalizeState struct {
 	LastFinalizeTime time.Time
 }
 
-func MustNewFinalizeState(lockerGenerator locker.SyncLockerGenerator, name string) *FinalizeState {
-	f := &FinalizeState{Name: name}
+func MustNewFinalizeState(lockerGenerator locker.SyncLockerGenerator, partition, name string) *FinalizeState {
+	f := &FinalizeState{GormModel: GormModel{Partition: partition}, Name: name}
 
 	state, err := NewBaseState(lockerGenerator, "finalize_states", NewBase64IDMarshaler("_"), f.StateIDComponents())
 	if err != nil {
@@ -149,7 +149,7 @@ func (s *CacheAndPersistFinalizer) ClearStates(states ...State) error {
 }
 
 func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) (err error) {
-	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name))
+	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
 
 	finalizeState, err := stateContainer.GetAndLock()
 
@@ -198,7 +198,7 @@ func (s *CacheAndPersistFinalizer) finalizeSnapshot(snapshotID string) error {
 }
 
 func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() (err error) {
-	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name))
+	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
 
 	finalizeState, err := stateContainer.GetAndLock()
 

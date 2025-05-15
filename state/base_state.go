@@ -1,6 +1,8 @@
 package state
 
 import (
+	"fmt"
+	"reflect"
 	"sync"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
@@ -21,6 +23,7 @@ type BaseState struct {
 func NewBaseState(lockerGenerator locker.SyncLockerGenerator, stateName string, idMarshaler IDMarshaler, idComponents StateIDComponents) (*BaseState, error) {
 	s := &BaseState{}
 
+	fmt.Printf("NewBaseState Initialize: stateName: %v, idMarshaler: %T, idComponents: %+v\n", stateName, idMarshaler, idComponents)
 	err := s.Initialize(lockerGenerator, stateName, idMarshaler, idComponents)
 	if err != nil {
 		return nil, err
@@ -68,6 +71,13 @@ func (s *BaseState) Initialize(generator locker.SyncLockerGenerator, stateName s
 		return err
 	}
 
+	idComponentsStr := ""
+
+	for _, component := range idComponents {
+		idComponentsStr += fmt.Sprintf(" %+v", reflect.ValueOf(component).Elem().Interface())
+	}
+
+	fmt.Printf("Initialize GetStateLockerByName, stateName: %v, stateID: %v, idComponents: %v\n", stateName, stateID, idComponentsStr)
 	s.locker, err = GetStateLockerByName(generator, s.stateName, stateID)
 	if err != nil {
 		return err

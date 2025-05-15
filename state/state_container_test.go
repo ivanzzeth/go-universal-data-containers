@@ -1,7 +1,7 @@
 package state
 
 import (
-	"log"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFinalizerStateContainer(t *testing.T) {
+func TestMemoryFinalizerStateContainer(t *testing.T) {
 	registry := NewSimpleRegistry()
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	// fmt.Printf("TestFinalizerStateContainer: lockerGenerator:%p\n", lockerGenerator)
@@ -32,6 +32,47 @@ func TestFinalizerStateContainer(t *testing.T) {
 	finalizer := NewCacheAndPersistFinalizer(2*time.Second, registry, lockerGenerator, cache, persist, "")
 	defer finalizer.Close()
 
+	SpecTestFinalizerStateContainer(t, cache, persist, finalizer, lockerGenerator)
+}
+
+// func TestRedisAndGormFinalizerStateContainer(t *testing.T) {
+// 	db, err := setupTestGormDB()
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+
+// 	err = db.AutoMigrate(&TestUserModel{}, &FinalizeState{}, &SnapshotState{})
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+
+// 	rdb := setupRdb(t)
+// 	redisPool := goredis.NewPool(rdb)
+// 	registry := NewSimpleRegistry()
+// 	lockerGenerator := locker.NewRedisLockerGenerator(redisPool)
+// 	// fmt.Printf("TestFinalizerStateContainer: lockerGenerator:%p\n", lockerGenerator)
+
+// 	err = registry.RegisterState(MustNewTestUserModel(lockerGenerator, "", ""))
+// 	if err != nil {
+// 		t.Fatal(err)
+// 	}
+
+// 	storageFactory := NewRedisStorageFactory(rdb, registry, lockerGenerator, nil)
+// 	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
+// 	cache, _ := NewRedisStorage(lockerGenerator, rdb, registry, cacheSnapshot, "")
+// 	cacheSnapshot.SetStorageForSnapshot(cache)
+
+// 	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
+// 	persist, _ := NewGORMStorage(lockerGenerator, db, registry, persistSnapshot, "")
+// 	persistSnapshot.SetStorageForSnapshot(persist)
+
+// 	finalizer := NewCacheAndPersistFinalizer(2*time.Second, registry, lockerGenerator, cache, persist, "")
+// 	defer finalizer.Close()
+
+// 	SpecTestFinalizerStateContainer(t, cache, persist, finalizer, lockerGenerator)
+// }
+
+func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, finalizer Finalizer, lockerGenerator locker.SyncLockerGenerator) {
 	t.Run("Single instance access states", func(t *testing.T) {
 		user1Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server"))
 		// Use sync.Locker to make sure concurrent safety accross
@@ -43,7 +84,7 @@ func TestFinalizerStateContainer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// fmt.Printf("User1 lock, locker: %p, generator: %p, user1: %+v\n", user1.GetLocker(), user1.GetLockerGenerator(), user1)
+		fmt.Printf("User1 lock, locker: %p, generator: %p, user1: %+v\n", user1.GetLocker(), user1.GetLockerGenerator(), user1)
 
 		assert.Equal(t, "user1", user1.Name)
 		assert.Equal(t, "server", user1.Server)
@@ -67,9 +108,11 @@ func TestFinalizerStateContainer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// fmt.Printf("User1 unlock, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
+		fmt.Printf("User1 unlock, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
 
 		user1.Unlock()
+
+		fmt.Printf("User1 unlocked, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
 
 		// Load user1 from cache
 		newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server")).Get()
@@ -99,10 +142,10 @@ func TestFinalizerStateContainer(t *testing.T) {
 	})
 
 	t.Run("Multiple instances access states", func(t *testing.T) {
-		lockGen := locker.NewMemoryLockerGenerator()
-
-		user2Container := NewStateContainer(finalizer, MustNewTestUserModel(lockGen, "user2", "serve2"))
-		user3Container := NewStateContainer(finalizer, MustNewTestUserModel(lockGen, "user3", "serve2"))
+		user2Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user2", "serve2"))
+		user3Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user3", "serve2"))
+		user2Id, _ := user2Container.StateID()
+		user3Id, _ := user3Container.StateID()
 
 		// Simulate multiple instances
 		var wg sync.WaitGroup
@@ -112,22 +155,32 @@ func TestFinalizerStateContainer(t *testing.T) {
 			go func() {
 				defer wg.Done()
 
-				log.Printf("goroutine: %d, user2 GetAndLock\n", i)
+				defer func() {
+					fmt.Printf("goroutine: %d, released locker\n", i)
+				}()
+
+				fmt.Printf("goroutine: %d, user2 %v GetAndLock\n", i, user2Id)
 				user2, err := user2Container.GetAndLock()
 				if err != nil {
 					errChan <- err
 				}
-				defer user2.Unlock()
+				defer func() {
+					user2.Unlock()
+					fmt.Printf("goroutine: %d, released %v locker\n", i, "user2 "+user2Id)
+				}()
 
-				log.Printf("goroutine: %d, user3 GetAndLock\n", i)
+				fmt.Printf("goroutine: %d, user3 %v GetAndLock\n", i, user3Id)
 
 				user3, err := user3Container.GetAndLock()
 				if err != nil {
 					errChan <- err
 				}
-				defer user3.Unlock()
+				defer func() {
+					user3.Unlock()
+					fmt.Printf("goroutine: %d, released %v locker\n", i, "user3 "+user2Id)
+				}()
 
-				log.Printf("goroutine: %d, Update\n", i)
+				fmt.Printf("goroutine: %d, Update\n", i)
 
 				user2.Height += 2
 				user3.Age++

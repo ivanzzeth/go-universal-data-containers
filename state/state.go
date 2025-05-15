@@ -58,5 +58,7 @@ func GetStateIDByComponents(idMarshaler IDMarshaler, stateIDComponents StateIDCo
 
 func GetStateLockerByName(lockerGenerator locker.SyncLockerGenerator, stateName, stateID string) (sync.Locker, error) {
 	locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("state-locker-%v-id-%v", stateName, stateID))
+	// fmt.Printf("GetStateLockerByName, key: %v, generator: %p, generator type: %T, locker: %p\n", fmt.Sprintf("state-locker-%v-id-%v", stateName, stateID),
+	// 	lockerGenerator, lockerGenerator, locker)
 	return locker, err
 }

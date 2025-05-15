@@ -19,7 +19,7 @@ type TestUserModel struct {
 
 func MustNewTestUserModel(lockerGenerator locker.SyncLockerGenerator, name, server string) *TestUserModel {
 	// You must initialize all id components first
-	m := &TestUserModel{Name: name, Server: server}
+	m := &TestUserModel{GormModel: GormModel{Partition: "test_user_partition"}, Name: name, Server: server}
 
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.

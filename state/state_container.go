@@ -2,6 +2,7 @@ package state
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -33,10 +34,13 @@ func (s *StateContainer[T]) StateID() (stateID string, err error) {
 }
 
 func (s *StateContainer[T]) GetLocker() (sync.Locker, error) {
+	// fmt.Printf("GetLocker started\n")
 	stateID, err := s.StateID()
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("GetLocker GetStateLockerByName, lockerGenerator: %T, state: %+v\n", s.state.GetLockerGenerator(), s.state)
 
 	locker, err := GetStateLockerByName(s.state.GetLockerGenerator(), s.state.StateName(), stateID)
 	if err != nil {
@@ -50,6 +54,7 @@ func (s *StateContainer[T]) GetLocker() (sync.Locker, error) {
 }
 
 func (s *StateContainer[T]) GetAndLock() (T, error) {
+	// fmt.Printf("GetAndLock started\n")
 	locker, err := s.GetLocker()
 	if err != nil {
 		return s.nilState(), err

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -19,7 +20,22 @@ type SimpleRegistry struct {
 }
 
 func NewSimpleRegistry() *SimpleRegistry {
-	return &SimpleRegistry{}
+	r := &SimpleRegistry{}
+
+	// Register default states
+	states := []State{
+		&FinalizeState{},
+		&SnapshotState{},
+	}
+
+	for _, state := range states {
+		err := r.RegisterState(state)
+		if err != nil {
+			panic(fmt.Errorf("failed to register internal state: %v", err))
+		}
+	}
+
+	return r
 }
 
 func (s *SimpleRegistry) RegisterState(state State) error {
@@ -54,6 +70,7 @@ func (s *SimpleRegistry) NewState(name string) (State, error) {
 
 	state := stateInterface.(State)
 
+	fmt.Printf("NewState state, Initialize: %+v, name: %v, registered: %+v\n", state, name, registered)
 	err := state.Initialize(registered.(State).GetLockerGenerator(), name, registered.(State).GetIDMarshaler(), registered.(State).StateIDComponents())
 	if err != nil {
 		return nil, err
