@@ -114,7 +114,7 @@ func (s *MemoryStorage) Unlock(ctx context.Context) error {
 	return s.locker.Unlock(ctx)
 }
 
-func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
+func (s *MemoryStorage) GetStateIDs(ctx context.Context, name string) ([]string, error) {
 	time.Sleep(s.delay)
 
 	s.stateLocker.Lock()
@@ -134,7 +134,7 @@ func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
 	return ids, nil
 }
 
-func (s *MemoryStorage) GetStateNames() ([]string, error) {
+func (s *MemoryStorage) GetStateNames(ctx context.Context) ([]string, error) {
 	time.Sleep(s.delay)
 
 	s.stateLocker.Lock()
@@ -148,7 +148,7 @@ func (s *MemoryStorage) GetStateNames() ([]string, error) {
 	return names, nil
 }
 
-func (s *MemoryStorage) LoadAllStates() ([]State, error) {
+func (s *MemoryStorage) LoadAllStates(ctx context.Context) ([]State, error) {
 	time.Sleep(s.delay)
 
 	s.stateLocker.Lock()
@@ -164,7 +164,7 @@ func (s *MemoryStorage) LoadAllStates() ([]State, error) {
 	return states, nil
 }
 
-func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
+func (s *MemoryStorage) LoadState(ctx context.Context, name string, id string) (State, error) {
 	_, err := s.registry.NewState(name)
 	if err != nil {
 		return nil, err
@@ -193,7 +193,7 @@ func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
 	return state, nil
 }
 
-func (s *MemoryStorage) SaveStates(states ...State) error {
+func (s *MemoryStorage) SaveStates(ctx context.Context, states ...State) error {
 	time.Sleep(s.delay)
 
 	s.stateLocker.Lock()
@@ -221,7 +221,7 @@ func (s *MemoryStorage) SaveStates(states ...State) error {
 	return nil
 }
 
-func (s *MemoryStorage) ClearStates(states ...State) error {
+func (s *MemoryStorage) ClearStates(ctx context.Context, states ...State) error {
 	time.Sleep(s.delay)
 
 	s.stateLocker.Lock()
@@ -247,7 +247,7 @@ func (s *MemoryStorage) ClearStates(states ...State) error {
 	return nil
 }
 
-func (s *MemoryStorage) ClearAllStates() error {
+func (s *MemoryStorage) ClearAllStates(ctx context.Context) error {
 	time.Sleep(s.delay)
 
 	s.stateLocker.Lock()

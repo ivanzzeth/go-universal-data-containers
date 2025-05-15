@@ -134,7 +134,7 @@ func (d *DistributedTicker) run() {
 				stateLocker.Lock(context.TODO())
 				defer stateLocker.Unlock(context.TODO())
 
-				tState, err := d.storage.LoadState(stateTmp.StateName(), stateID)
+				tState, err := d.storage.LoadState(context.TODO(), stateTmp.StateName(), stateID)
 				if err != nil {
 					if !errors.Is(err, state.ErrStateNotFound) {
 						return
@@ -170,7 +170,7 @@ func (d *DistributedTicker) run() {
 
 				// log.Printf("tick7\n")
 
-				err = d.storage.SaveStates(tickerState)
+				err = d.storage.SaveStates(context.TODO(), tickerState)
 				if err != nil {
 					return
 				}

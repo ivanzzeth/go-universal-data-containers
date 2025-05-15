@@ -94,7 +94,7 @@ func (s *StateContainer[T]) Get(ctx context.Context) (T, error) {
 	return s.state, nil
 }
 
-func (s *StateContainer[T]) GetFromPersist() (T, error) {
+func (s *StateContainer[T]) GetFromPersist(ctx context.Context) (T, error) {
 	if len(s.state.StateIDComponents()) == 0 {
 		return s.nilState(), ErrStateIDComponents
 	}
@@ -104,7 +104,7 @@ func (s *StateContainer[T]) GetFromPersist() (T, error) {
 		return s.state, err
 	}
 
-	state, err := s.finalizer.GetPersistStorage().LoadState(s.state.StateName(), stateID)
+	state, err := s.finalizer.GetPersistStorage().LoadState(ctx, s.state.StateName(), stateID)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
 			return s.nilState(), err

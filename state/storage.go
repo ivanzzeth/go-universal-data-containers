@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -30,26 +31,26 @@ type Storage interface {
 	// Used for distinguishing different storages.
 	StorageName() string
 
-	LoadState(name string, id string) (State, error)
-	LoadAllStates() ([]State, error)
-	SaveStates(states ...State) error
-	ClearStates(states ...State) error
-	ClearAllStates() error
+	LoadState(ctx context.Context, name string, id string) (State, error)
+	LoadAllStates(ctx context.Context) ([]State, error)
+	SaveStates(ctx context.Context, states ...State) error
+	ClearStates(ctx context.Context, states ...State) error
+	ClearAllStates(ctx context.Context) error
 
-	GetStateIDs(name string) ([]string, error)
-	GetStateNames() ([]string, error)
+	GetStateIDs(ctx context.Context, name string) ([]string, error)
+	GetStateNames(ctx context.Context) ([]string, error)
 }
 
 type StorageSnapshot interface {
 	SetStorageForSnapshot(storage Storage)
 	GetStorageForSnapshot() (storage Storage)
 
-	SnapshotStates() (snapshotID string, err error)
-	RevertStatesToSnapshot(snapshotID string) (err error)
-	GetSnapshot(snapshotID string) (storage Storage, err error)
-	GetSnapshotIDs() (snapshotIDs []string, err error)
-	DeleteSnapshot(snapshotID string) (err error)
-	ClearSnapshots() (err error)
+	SnapshotStates(ctx context.Context) (snapshotID string, err error)
+	RevertStatesToSnapshot(ctx context.Context, snapshotID string) (err error)
+	GetSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error)
+	GetSnapshotIDs(ctx context.Context) (snapshotIDs []string, err error)
+	DeleteSnapshot(ctx context.Context, snapshotID string) (err error)
+	ClearSnapshots(ctx context.Context) (err error)
 }
 
 func GetStorageLockerByName(lockerGenerator locker.SyncLockerGenerator, storageName string) (locker.SyncLocker, error) {

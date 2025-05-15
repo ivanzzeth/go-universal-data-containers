@@ -79,17 +79,17 @@ func (s *SimpleStorageSnapshot) GetStorageForSnapshot() (storage Storage) {
 	return s.storage
 }
 
-func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) {
+func (s *SimpleStorageSnapshot) SnapshotStates(ctx context.Context) (snapshotID string, err error) {
 	// fmt.Printf("SnapshotStates\n")
-	err = s.storage.Lock(context.TODO())
+	err = s.storage.Lock(ctx)
 	if err != nil {
 		return "", err
 	}
 
-	defer s.storage.Unlock(context.TODO())
+	defer s.storage.Unlock(ctx)
 
 	// fmt.Printf("SnapshotStates LoadAllStates\n")
-	states, err := s.storage.LoadAllStates()
+	states, err := s.storage.LoadAllStates(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -97,13 +97,13 @@ func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) 
 	// Generate random snapshotID
 	snapshotID = uuid.New().String()
 	// fmt.Printf("SnapshotStates GetOrCreateStorage\n")
-	storage, err := s.createSnapshot(snapshotID)
+	storage, err := s.createSnapshot(ctx, snapshotID)
 	if err != nil {
 		return "", err
 	}
 
 	// fmt.Printf("SnapshotStates SaveStates\n")
-	err = storage.SaveStates(states...)
+	err = storage.SaveStates(ctx, states...)
 	if err != nil {
 		return "", err
 	}
@@ -111,38 +111,38 @@ func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) 
 	return
 }
 
-func (s *SimpleStorageSnapshot) RevertStatesToSnapshot(snapshotID string) (err error) {
+func (s *SimpleStorageSnapshot) RevertStatesToSnapshot(ctx context.Context, snapshotID string) (err error) {
 	// fmt.Printf("RevertStatesToSnapshot\n")
-	err = s.storage.Lock(context.TODO())
+	err = s.storage.Lock(ctx)
 	if err != nil {
 		return err
 	}
 
-	defer s.storage.Unlock(context.TODO())
+	defer s.storage.Unlock(ctx)
 
 	// fmt.Printf("RevertStatesToSnapshot GetSnapshot\n")
 
-	snapshot, err := s.getSnapshot(snapshotID)
+	snapshot, err := s.getSnapshot(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 	// fmt.Printf("RevertStatesToSnapshot LoadAllStates\n")
 
-	states, err := snapshot.LoadAllStates()
+	states, err := snapshot.LoadAllStates(ctx)
 	if err != nil {
 		return err
 	}
 
 	// fmt.Printf("RevertStatesToSnapshot ClearAllStates\n")
 
-	err = s.storage.ClearAllStates()
+	err = s.storage.ClearAllStates(ctx)
 	if err != nil {
 		return err
 	}
 
 	// fmt.Printf("RevertStatesToSnapshot SaveStates\n")
 
-	err = s.storage.SaveStates(states...)
+	err = s.storage.SaveStates(ctx, states...)
 	if err != nil {
 		return err
 	}
@@ -150,34 +150,34 @@ func (s *SimpleStorageSnapshot) RevertStatesToSnapshot(snapshotID string) (err e
 	return nil
 }
 
-func (s *SimpleStorageSnapshot) GetSnapshot(snapshotID string) (storage Storage, err error) {
-	err = s.storage.Lock(context.TODO())
+func (s *SimpleStorageSnapshot) GetSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
+	err = s.storage.Lock(ctx)
 	if err != nil {
 		return
 	}
-	defer s.storage.Unlock(context.TODO())
+	defer s.storage.Unlock(ctx)
 
-	return s.getSnapshot(snapshotID)
+	return s.getSnapshot(ctx, snapshotID)
 }
 
-func (s *SimpleStorageSnapshot) GetSnapshotIDs() (snapshotIDs []string, err error) {
-	err = s.storage.Lock(context.TODO())
+func (s *SimpleStorageSnapshot) GetSnapshotIDs(ctx context.Context) (snapshotIDs []string, err error) {
+	err = s.storage.Lock(ctx)
 	if err != nil {
 		return
 	}
-	defer s.storage.Unlock(context.TODO())
+	defer s.storage.Unlock(ctx)
 
-	return s.getSnapshotIDs()
+	return s.getSnapshotIDs(ctx)
 }
 
-func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err error) {
+func (s *SimpleStorageSnapshot) getSnapshotIDs(ctx context.Context) (snapshotIDs []string, err error) {
 	sm, err := s.getSnapshotManagementStorage()
 	if err != nil {
 		return
 	}
 
 	snapshotState := MustNewSnapshotState(s.lockerGenerator, s.name, "")
-	snapshotStateIds, err := sm.GetStateIDs(snapshotState.StateName())
+	snapshotStateIds, err := sm.GetStateIDs(ctx, snapshotState.StateName())
 	if err != nil {
 		return
 	}
@@ -195,7 +195,7 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 	return
 }
 
-func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage, err error) {
+func (s *SimpleStorageSnapshot) getSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
 	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
 	stateID, err := GetStateID(snapshot)
 	if err != nil {
@@ -207,7 +207,7 @@ func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage,
 		return
 	}
 
-	snapshotState, err := sm.LoadState(snapshot.StateName(), stateID)
+	snapshotState, err := sm.LoadState(ctx, snapshot.StateName(), stateID)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			return nil, ErrSnapshotNotFound
@@ -224,7 +224,7 @@ func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage,
 	return
 }
 
-func (s *SimpleStorageSnapshot) createSnapshot(snapshotID string) (storage Storage, err error) {
+func (s *SimpleStorageSnapshot) createSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
 	sm, err := s.getSnapshotManagementStorage()
 	if err != nil {
 		return
@@ -232,17 +232,17 @@ func (s *SimpleStorageSnapshot) createSnapshot(snapshotID string) (storage Stora
 
 	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
 
-	err = snapshot.Lock(context.TODO())
+	err = snapshot.Lock(ctx)
 	if err != nil {
 		return
 	}
-	defer snapshot.Unlock(context.TODO())
+	defer snapshot.Unlock(ctx)
 
 	snapshot.CreatedAt = time.Now()
 	snapshot.UpdatedAt = time.Now()
 
 	// fmt.Printf("SnapshotStates createSnapshot: %+v\n", snapshot)
-	err = sm.SaveStates(snapshot)
+	err = sm.SaveStates(ctx, snapshot)
 	if err != nil {
 		return
 	}
@@ -258,23 +258,23 @@ func (s *SimpleStorageSnapshot) getSnapshotManagementStorage() (storage Storage,
 	return
 }
 
-func (s *SimpleStorageSnapshot) DeleteSnapshot(snapshotID string) (err error) {
-	err = s.storage.Lock(context.TODO())
+func (s *SimpleStorageSnapshot) DeleteSnapshot(ctx context.Context, snapshotID string) (err error) {
+	err = s.storage.Lock(ctx)
 	if err != nil {
 		return
 	}
-	defer s.storage.Unlock(context.TODO())
+	defer s.storage.Unlock(ctx)
 
-	return s.deleteSnapshot(snapshotID)
+	return s.deleteSnapshot(ctx, snapshotID)
 }
 
-func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
-	storage, err := s.getSnapshot(snapshotID)
+func (s *SimpleStorageSnapshot) deleteSnapshot(ctx context.Context, snapshotID string) (err error) {
+	storage, err := s.getSnapshot(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 
-	err = storage.ClearAllStates()
+	err = storage.ClearAllStates(ctx)
 	if err != nil {
 		return err
 	}
@@ -285,7 +285,7 @@ func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
 	}
 
 	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
-	err = sm.ClearStates(snapshot)
+	err = sm.ClearStates(ctx, snapshot)
 	if err != nil {
 		return
 	}
@@ -293,20 +293,20 @@ func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
 	return
 }
 
-func (s *SimpleStorageSnapshot) ClearSnapshots() (err error) {
-	err = s.storage.Lock(context.TODO())
+func (s *SimpleStorageSnapshot) ClearSnapshots(ctx context.Context) (err error) {
+	err = s.storage.Lock(ctx)
 	if err != nil {
 		return
 	}
-	defer s.storage.Unlock(context.TODO())
+	defer s.storage.Unlock(ctx)
 
-	snapshotIds, err := s.getSnapshotIDs()
+	snapshotIds, err := s.getSnapshotIDs(ctx)
 	if err != nil {
 		return
 	}
 
 	for _, snapshotId := range snapshotIds {
-		err = s.deleteSnapshot(snapshotId)
+		err = s.deleteSnapshot(ctx, snapshotId)
 		if err != nil {
 			return err
 		}

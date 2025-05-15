@@ -12,17 +12,17 @@ import (
 
 func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator, finalizer Finalizer, finalizerFactory func() Finalizer) {
 	t.Run("Test basic cases", func(t *testing.T) {
-		err := finalizer.ClearAllCachedStates(context.TODO())
+		err := finalizer.ClearAllCachedStates(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		err = finalizer.ClearSnapshots()
+		err = finalizer.ClearSnapshots(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		snapshot1, err := finalizer.SnapshotStates()
+		snapshot1, err := finalizer.SnapshotStates(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -48,7 +48,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 			t.Fatal(err)
 		}
 
-		snapshot2, err := finalizer.SnapshotStates()
+		snapshot2, err := finalizer.SnapshotStates(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,7 +66,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 		assert.Equal(t, 1, newUser1.Height)
 
 		// Revert to snapshot1
-		err = finalizer.RevertStatesToSnapshot(snapshot1)
+		err = finalizer.RevertStatesToSnapshot(context.Background(), snapshot1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -75,7 +75,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 		assert.Equal(t, ErrStateNotFound, err)
 
 		// Revert to snapshot2
-		err = finalizer.RevertStatesToSnapshot(snapshot2)
+		err = finalizer.RevertStatesToSnapshot(context.Background(), snapshot2)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -119,7 +119,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 				t.Fatal(err)
 			}
 
-			err = finalizers[i].ClearSnapshots()
+			err = finalizers[i].ClearSnapshots(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -168,7 +168,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 
 		assert.Equal(t, 10, user1Cached.Age)
 
-		user1Finalized, err := user1ContainerForPersist.GetFromPersist()
+		user1Finalized, err := user1ContainerForPersist.GetFromPersist(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

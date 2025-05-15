@@ -130,10 +130,10 @@ func (s *RedisStorage) getStateIdKey() string {
 	return fmt.Sprintf("state_id_%s", s.partition)
 }
 
-func (s *RedisStorage) GetStateIDs(name string) ([]string, error) {
+func (s *RedisStorage) GetStateIDs(ctx context.Context, name string) ([]string, error) {
 	time.Sleep(s.delay)
 
-	idsStr, err := s.redisClient.HGet(context.Background(), s.getStateIdKey(), name).Result()
+	idsStr, err := s.redisClient.HGet(ctx, s.getStateIdKey(), name).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return nil, nil
@@ -148,10 +148,10 @@ func (s *RedisStorage) GetStateIDs(name string) ([]string, error) {
 	return ids, nil
 }
 
-func (s *RedisStorage) GetStateNames() ([]string, error) {
+func (s *RedisStorage) GetStateNames(ctx context.Context) ([]string, error) {
 	time.Sleep(s.delay)
 
-	names, err := s.redisClient.HKeys(context.Background(), s.getStateIdKey()).Result()
+	names, err := s.redisClient.HKeys(ctx, s.getStateIdKey()).Result()
 	if err != nil {
 		return nil, err
 	}
@@ -159,8 +159,8 @@ func (s *RedisStorage) GetStateNames() ([]string, error) {
 	return names, nil
 }
 
-func (s *RedisStorage) LoadAllStates() ([]State, error) {
-	names, err := s.GetStateNames()
+func (s *RedisStorage) LoadAllStates(ctx context.Context) ([]State, error) {
+	names, err := s.GetStateNames(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (s *RedisStorage) LoadAllStates() ([]State, error) {
 			defer wg.Done()
 			time.Sleep(s.delay)
 
-			results, err := s.redisClient.HVals(context.Background(), s.getStateKey(name)).Result()
+			results, err := s.redisClient.HVals(ctx, s.getStateKey(name)).Result()
 			if err != nil {
 				errsChan <- err
 				return
@@ -213,7 +213,7 @@ func (s *RedisStorage) LoadAllStates() ([]State, error) {
 	return states, nil
 }
 
-func (s *RedisStorage) LoadState(name string, id string) (State, error) {
+func (s *RedisStorage) LoadState(ctx context.Context, name string, id string) (State, error) {
 	state, err := s.registry.NewState(name)
 	if err != nil {
 		return nil, err
@@ -226,7 +226,7 @@ func (s *RedisStorage) LoadState(name string, id string) (State, error) {
 
 	time.Sleep(s.delay)
 
-	res, err := s.redisClient.HGet(context.Background(), s.getStateKey(name), id).Result()
+	res, err := s.redisClient.HGet(ctx, s.getStateKey(name), id).Result()
 	if err != nil {
 		if err == redis.Nil {
 			return nil, ErrStateNotFound
@@ -247,7 +247,7 @@ func (s *RedisStorage) LoadState(name string, id string) (State, error) {
 	return state, nil
 }
 
-func (s *RedisStorage) SaveStates(states ...State) error {
+func (s *RedisStorage) SaveStates(ctx context.Context, states ...State) error {
 	statesToSave := make(map[string]map[string]string) // name => id => value
 
 	for _, state := range states {
@@ -278,7 +278,7 @@ func (s *RedisStorage) SaveStates(states ...State) error {
 
 			time.Sleep(s.delay)
 
-			_, err := s.redisClient.HSet(context.Background(), s.getStateKey(stateName), kv).Result()
+			_, err := s.redisClient.HSet(ctx, s.getStateKey(stateName), kv).Result()
 			if err != nil {
 				errsChan <- err
 				return
@@ -286,7 +286,7 @@ func (s *RedisStorage) SaveStates(states ...State) error {
 
 			time.Sleep(s.delay)
 
-			idsSlice, err := s.redisClient.HKeys(context.Background(), s.getStateKey(stateName)).Result()
+			idsSlice, err := s.redisClient.HKeys(ctx, s.getStateKey(stateName)).Result()
 			if err != nil {
 				errsChan <- err
 				return
@@ -297,7 +297,7 @@ func (s *RedisStorage) SaveStates(states ...State) error {
 			time.Sleep(s.delay)
 
 			// fmt.Printf("SaveStates: stateName=%v, kv=%v, ids=%v\n", stateName, kv, ids)
-			_, err = s.redisClient.HSet(context.Background(), s.getStateIdKey(), stateName, ids).Result()
+			_, err = s.redisClient.HSet(ctx, s.getStateIdKey(), stateName, ids).Result()
 			if err != nil {
 				errsChan <- err
 				return
@@ -325,7 +325,7 @@ func (s *RedisStorage) SaveStates(states ...State) error {
 	return nil
 }
 
-func (s *RedisStorage) ClearStates(states ...State) (err error) {
+func (s *RedisStorage) ClearStates(ctx context.Context, states ...State) (err error) {
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(states))
 
@@ -342,7 +342,7 @@ func (s *RedisStorage) ClearStates(states ...State) (err error) {
 
 			time.Sleep(s.delay)
 
-			_, err = s.redisClient.HDel(context.Background(), s.getStateKey(state.StateName()), id).Result()
+			_, err = s.redisClient.HDel(ctx, s.getStateKey(state.StateName()), id).Result()
 			if err != nil {
 				errChan <- fmt.Errorf("clear all states failed: %v", err)
 				return
@@ -362,8 +362,8 @@ func (s *RedisStorage) ClearStates(states ...State) (err error) {
 	return
 }
 
-func (s *RedisStorage) ClearAllStates() error {
-	names, err := s.GetStateNames()
+func (s *RedisStorage) ClearAllStates(ctx context.Context) error {
+	names, err := s.GetStateNames(ctx)
 	if err != nil {
 		return fmt.Errorf("get all state names failed: %v", err)
 	}
@@ -378,7 +378,7 @@ func (s *RedisStorage) ClearAllStates() error {
 			defer wg.Done()
 			time.Sleep(s.delay)
 
-			_, err = s.redisClient.Del(context.Background(), s.getStateKey(name)).Result()
+			_, err = s.redisClient.Del(ctx, s.getStateKey(name)).Result()
 			if err != nil {
 				errsChan <- fmt.Errorf("clear all states failed: %v", err)
 				return
@@ -396,7 +396,7 @@ func (s *RedisStorage) ClearAllStates() error {
 	}
 
 	time.Sleep(s.delay)
-	_, err = s.redisClient.Del(context.Background(), s.getStateIdKey()).Result()
+	_, err = s.redisClient.Del(ctx, s.getStateIdKey()).Result()
 	if err != nil {
 		return fmt.Errorf("clear all IDs of states failed: %v", err)
 	}

@@ -128,7 +128,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		assert.Equal(t, 180, newUser1.Height)
 
 		// Load user1 from persist
-		_, err = persist.LoadState(user1.StateName(), user1StateID)
+		_, err = persist.LoadState(context.Background(), user1.StateName(), user1StateID)
 		assert.Equal(t, err, ErrStateNotFound)
 
 		// Finalize states into persist database
@@ -138,7 +138,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		}
 
 		// Make sure that the changes are in persist after finalization
-		_, err = persist.LoadState(user1.StateName(), user1StateID)
+		_, err = persist.LoadState(context.Background(), user1.StateName(), user1StateID)
 		assert.NotEqual(t, err, ErrStateNotFound)
 	})
 

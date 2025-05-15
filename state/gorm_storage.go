@@ -190,7 +190,7 @@ func (s *GORMStorage) Unlock(ctx context.Context) error {
 	return s.locker.Unlock(ctx)
 }
 
-func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {
+func (s *GORMStorage) GetStateIDs(ctx context.Context, name string) ([]string, error) {
 	states := []*StateManagement{}
 
 	time.Sleep(s.delay)
@@ -207,7 +207,7 @@ func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {
 	return res, nil
 }
 
-func (s *GORMStorage) GetStateNames() ([]string, error) {
+func (s *GORMStorage) GetStateNames(ctx context.Context) ([]string, error) {
 	states := []*StateManagement{}
 	time.Sleep(s.delay)
 
@@ -224,7 +224,7 @@ func (s *GORMStorage) GetStateNames() ([]string, error) {
 	return res, nil
 }
 
-func (s *GORMStorage) LoadAllStates() ([]State, error) {
+func (s *GORMStorage) LoadAllStates(ctx context.Context) ([]State, error) {
 	stateManagements := []*StateManagement{}
 	time.Sleep(s.delay)
 
@@ -264,7 +264,7 @@ func (s *GORMStorage) LoadAllStates() ([]State, error) {
 	return states, nil
 }
 
-func (s *GORMStorage) LoadState(name string, id string) (State, error) {
+func (s *GORMStorage) LoadState(ctx context.Context, name string, id string) (State, error) {
 	state, err := s.NewState(name)
 	if err != nil {
 		return nil, err
@@ -287,7 +287,7 @@ func (s *GORMStorage) LoadState(name string, id string) (State, error) {
 	return state, nil
 }
 
-func (s *GORMStorage) SaveStates(states ...State) error {
+func (s *GORMStorage) SaveStates(ctx context.Context, states ...State) error {
 	// fmt.Println()
 	// fmt.Println("-----------------------------------------")
 	// fmt.Printf("Storage Name: %v\n", s.partition)
@@ -316,15 +316,15 @@ func (s *GORMStorage) SaveStates(states ...State) error {
 		// fmt.Printf("SaveStates: state: %+v, sm: %+v\n", state, sm)
 	}
 
-	return s.BatchSave(models...)
+	return s.BatchSave(ctx, models...)
 }
 
-func (s *GORMStorage) BatchSave(models ...any) error {
+func (s *GORMStorage) BatchSave(ctx context.Context, models ...any) error {
 	time.Sleep(s.delay)
 	return execGormBatchOp(s.db, gormBatchOperationCreate, clause.OnConflict{UpdateAll: true}, models...)
 }
 
-func (s *GORMStorage) ClearStates(states ...State) error {
+func (s *GORMStorage) ClearStates(ctx context.Context, states ...State) error {
 	models := make([]any, 0, len(states))
 	for _, state := range states {
 		models = append(models, state)
@@ -341,10 +341,10 @@ func (s *GORMStorage) ClearStates(states ...State) error {
 		})
 	}
 
-	return s.BatchDelete(models...)
+	return s.BatchDelete(ctx, models...)
 }
 
-func (s *GORMStorage) ClearAllStates() error {
+func (s *GORMStorage) ClearAllStates(ctx context.Context) error {
 	// TODO: Optimize this.
 	// stateNames, err := s.GetStateNames()
 	// if err != nil {
@@ -367,7 +367,7 @@ func (s *GORMStorage) ClearAllStates() error {
 	// 	&StateManagement{Partition: s.partition},
 	// )
 
-	states, err := s.LoadAllStates()
+	states, err := s.LoadAllStates(ctx)
 	if err != nil {
 		if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
@@ -375,10 +375,10 @@ func (s *GORMStorage) ClearAllStates() error {
 		return nil
 	}
 
-	return s.ClearStates(states...)
+	return s.ClearStates(ctx, states...)
 }
 
-func (s *GORMStorage) BatchDelete(models ...any) error {
+func (s *GORMStorage) BatchDelete(ctx context.Context, models ...any) error {
 	time.Sleep(s.delay)
 	return execGormBatchOp(s.db, gormBatchOperationDelete, clause.OnConflict{UpdateAll: true}, models...)
 }
