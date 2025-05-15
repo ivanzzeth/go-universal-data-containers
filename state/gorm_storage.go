@@ -38,7 +38,7 @@ func (f *GORMStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f.registry, f, f.SyncLockerGenerator)
+				return NewSimpleStorageSnapshot(f.registry, f, f.SyncLockerGenerator, name)
 			}
 		}
 		snapshot := f.newSnapshot(f)
@@ -67,6 +67,8 @@ type GormModel struct {
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt gorm.DeletedAt `gorm:"index"`
+
+	Partition string `gorm:"not null; index"`
 }
 
 func (m *GormModel) FillID(state State) error {
@@ -104,11 +106,10 @@ type StateManagement struct {
 
 	StateNamee string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
 	StateID    string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
-	Partition  string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
 }
 
 func MustNewStateManagement(lockerGenerator locker.SyncLockerGenerator, stateName, stateID, partition string) *StateManagement {
-	m := &StateManagement{GormModel: GormModel{}, StateNamee: stateName, StateID: stateID, Partition: partition}
+	m := &StateManagement{GormModel: GormModel{Partition: partition}, StateNamee: stateName, StateID: stateID}
 	state, err := NewBaseState(lockerGenerator, "state_managements", NewJsonIDMarshaler("_"), m.StateIDComponents())
 	if err != nil {
 		panic(fmt.Errorf("failed to create base state: %v", err))
@@ -181,7 +182,7 @@ func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {
 	states := []*StateManagement{}
 
 	time.Sleep(s.delay)
-	err := s.db.Where(&StateManagement{StateNamee: name, Partition: s.partition}).Find(&states).Error
+	err := s.db.Where(&StateManagement{StateNamee: name, GormModel: GormModel{Partition: s.partition}}).Find(&states).Error
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +199,7 @@ func (s *GORMStorage) GetStateNames() ([]string, error) {
 	states := []*StateManagement{}
 	time.Sleep(s.delay)
 
-	err := s.db.Where(&StateManagement{Partition: s.partition}).Distinct("state_namee").Find(&states).Error
+	err := s.db.Where(&StateManagement{GormModel: GormModel{Partition: s.partition}}).Distinct("state_namee").Find(&states).Error
 	if err != nil {
 		return nil, err
 	}
@@ -215,7 +216,7 @@ func (s *GORMStorage) LoadAllStates() ([]State, error) {
 	stateManagements := []*StateManagement{}
 	time.Sleep(s.delay)
 
-	err := s.db.Where(&StateManagement{Partition: s.partition}).Find(&stateManagements).Error
+	err := s.db.Where(&StateManagement{GormModel: GormModel{Partition: s.partition}}).Find(&stateManagements).Error
 	if err != nil {
 		return nil, err
 	}
@@ -317,9 +318,9 @@ func (s *GORMStorage) ClearStates(states ...State) error {
 		}
 
 		models = append(models, &StateManagement{
+			GormModel:  GormModel{Partition: s.partition},
 			StateNamee: state.StateName(),
 			StateID:    stateID,
-			Partition:  s.partition,
 		})
 	}
 

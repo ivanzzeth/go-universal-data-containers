@@ -1,7 +1,7 @@
 package time
 
 import (
-	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,11 +20,9 @@ func SpecTestTicker(t *testing.T, tickerFactory func() Ticker) {
 		tickers = append(tickers, tickerFactory())
 	}
 
-	var wg sync.WaitGroup
+	var receivedCount atomic.Int64
 
 	for i := 0; i < count; i++ {
-		wg.Add(1)
-
 		go func(i int) {
 			ticker := tickers[i]
 			tick := ticker.Tick()
@@ -37,7 +35,7 @@ func SpecTestTicker(t *testing.T, tickerFactory func() Ticker) {
 				case tickTime := <-tick:
 					t.Logf("ticker#%d: %v", i, tickTime)
 					// time.Sleep(time.Second)
-					wg.Done()
+					receivedCount.Add(1)
 				case <-time.After(200 * time.Millisecond):
 					// t.Logf("ticker#%d timeout", i)
 				}
@@ -45,14 +43,19 @@ func SpecTestTicker(t *testing.T, tickerFactory func() Ticker) {
 		}(i)
 	}
 
-	wg.Wait()
+	for {
+		time.Sleep(100 * time.Millisecond)
+		if receivedCount.Load() >= int64(count) {
+			break
+		}
+	}
 }
 
 func TestDistributedTicker(t *testing.T) {
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	registry := state.NewSimpleRegistry()
 	storageFactory := state.NewMemoryStorageFactory(registry, lockerGenerator, nil)
-	snapshot := state.NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
+	snapshot := state.NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "memory")
 	storage, err := state.NewMemoryStorage(lockerGenerator, registry, snapshot, "memory")
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +64,7 @@ func TestDistributedTicker(t *testing.T) {
 	qf := queue.NewMemoryFactory()
 
 	SpecTestTicker(t, func() Ticker {
-		dt, _ := NewDistributedTicker("test", 100*time.Millisecond, registry, storage, lockerGenerator, qf)
+		dt, _ := NewDistributedTicker("memory", "test", 100*time.Millisecond, registry, storage, lockerGenerator, qf)
 
 		return dt
 	})
@@ -76,7 +79,7 @@ func TestDistributedTickerWithGorm(t *testing.T) {
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	registry := state.NewSimpleRegistry()
 	storageFactory := state.NewGORMStorageFactory(db, registry, lockerGenerator, nil)
-	snapshot := state.NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
+	snapshot := state.NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "gorm-store")
 	storage, err := state.NewGORMStorage(lockerGenerator, db, registry, snapshot, "gorm-store")
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +88,7 @@ func TestDistributedTickerWithGorm(t *testing.T) {
 	qf := queue.NewMemoryFactory()
 
 	SpecTestTicker(t, func() Ticker {
-		dt, _ := NewDistributedTicker("test", 100*time.Millisecond, registry, storage, lockerGenerator, qf)
+		dt, _ := NewDistributedTicker("memory", "test", 100*time.Millisecond, registry, storage, lockerGenerator, qf)
 
 		return dt
 	})

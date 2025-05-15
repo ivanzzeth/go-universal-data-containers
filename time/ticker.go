@@ -37,18 +37,18 @@ type DistributedTicker struct {
 	exitChannel chan struct{}
 }
 
-func NewDistributedTicker(name string, d time.Duration, registry state.Registry, storage state.Storage, lockerGenerator locker.SyncLockerGenerator, qf queue.Factory) (*DistributedTicker, error) {
+func NewDistributedTicker(partition, name string, d time.Duration, registry state.Registry, storage state.Storage, lockerGenerator locker.SyncLockerGenerator, qf queue.Factory) (*DistributedTicker, error) {
 	// locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("ticker-locker-%v", name))
 	// if err != nil {
 	// 	return nil, err
 	// }
 
-	q, err := qf.GetOrCreateSafe(fmt.Sprintf("ticker-queue-%v", name))
+	q, err := qf.GetOrCreateSafe(fmt.Sprintf("ticker-queue-%v-%v", partition, name))
 	if err != nil {
 		return nil, err
 	}
 
-	err = registry.RegisterState(MustNewTickerState(lockerGenerator, name))
+	err = registry.RegisterState(MustNewTickerState(lockerGenerator, partition, name))
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func (d *DistributedTicker) run() {
 					return fmt.Errorf("ticker is disabled")
 				}
 
-				stateTmp := MustNewTickerState(d.lockerGenerator, d.name)
+				stateTmp := MustNewTickerState(d.lockerGenerator, d.name, d.name)
 				stateID, err := state.GetStateID(stateTmp)
 				if err != nil {
 					return
@@ -195,8 +195,8 @@ type TickerState struct {
 	LastTickTime time.Time
 }
 
-func MustNewTickerState(lockerGenerator locker.SyncLockerGenerator, name string) *TickerState {
-	f := &TickerState{Name: name}
+func MustNewTickerState(lockerGenerator locker.SyncLockerGenerator, partition, name string) *TickerState {
+	f := &TickerState{GormModel: state.GormModel{Partition: partition}, Name: name}
 
 	state, err := state.NewBaseState(lockerGenerator, "ticker_states", state.NewBase64IDMarshaler("_"), f.StateIDComponents())
 	if err != nil {

@@ -21,10 +21,10 @@ type SnapshotState struct {
 	SnapshotID string `gorm:"not null;uniqueIndex"`
 }
 
-func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, snapshotId string) *SnapshotState {
+func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, name, snapshotId string) *SnapshotState {
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
-	m := &SnapshotState{GormModel: GormModel{}, SnapshotID: snapshotId}
+	m := &SnapshotState{GormModel: GormModel{Partition: name}, SnapshotID: snapshotId}
 
 	state, err := NewBaseState(lockerGenerator, "snapshot_states", NewBase64IDMarshaler("_"), m.StateIDComponents())
 	if err != nil {
@@ -46,6 +46,7 @@ func (u *SnapshotState) StateIDComponents() StateIDComponents {
 }
 
 type SimpleStorageSnapshot struct {
+	name            string
 	storage         Storage
 	setStorageOnce  sync.Once
 	storageFactory  StorageFactory
@@ -53,18 +54,23 @@ type SimpleStorageSnapshot struct {
 	registry        Registry
 }
 
-func NewSimpleStorageSnapshot(registry Registry, storageFactory StorageFactory, lockerGenerator locker.SyncLockerGenerator) *SimpleStorageSnapshot {
+func NewSimpleStorageSnapshot(registry Registry, storageFactory StorageFactory, lockerGenerator locker.SyncLockerGenerator, name string) *SimpleStorageSnapshot {
+	if name == "" {
+		name = "default"
+	}
+
 	return &SimpleStorageSnapshot{
 		storageFactory:  storageFactory,
 		registry:        registry,
 		lockerGenerator: lockerGenerator,
+		name:            name,
 	}
 }
 
 func (s *SimpleStorageSnapshot) SetStorageForSnapshot(storage Storage) {
 	s.setStorageOnce.Do(func() {
 		s.storage = storage
-		s.registry.RegisterState(MustNewSnapshotState(s.lockerGenerator, ""))
+		s.registry.RegisterState(MustNewSnapshotState(s.lockerGenerator, s.name, ""))
 	})
 }
 
@@ -155,14 +161,14 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 		return
 	}
 
-	snapshotState := MustNewSnapshotState(s.lockerGenerator, "")
+	snapshotState := MustNewSnapshotState(s.lockerGenerator, s.name, "")
 	snapshotStateIds, err := sm.GetStateIDs(snapshotState.StateName())
 	if err != nil {
 		return
 	}
 
 	for _, snapshotStateId := range snapshotStateIds {
-		snapshot := MustNewSnapshotState(s.lockerGenerator, "")
+		snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, "")
 		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.SnapshotID)
 		if err != nil {
 			return
@@ -175,7 +181,7 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err erro
 }
 
 func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage, err error) {
-	snapshot := MustNewSnapshotState(s.lockerGenerator, snapshotID)
+	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
 	stateID, err := GetStateID(snapshot)
 	if err != nil {
 		return nil, err
@@ -209,7 +215,7 @@ func (s *SimpleStorageSnapshot) createSnapshot(snapshotID string) (storage Stora
 		return
 	}
 
-	snapshot := MustNewSnapshotState(s.lockerGenerator, snapshotID)
+	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
 
 	snapshot.Lock()
 	defer snapshot.Unlock()
@@ -256,7 +262,7 @@ func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
 		return
 	}
 
-	snapshot := MustNewSnapshotState(s.lockerGenerator, snapshotID)
+	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
 	err = sm.ClearStates(snapshot)
 	if err != nil {
 		return

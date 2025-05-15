@@ -116,7 +116,7 @@ func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQue
 
 			if unackedReturned > 0 {
 				// TODO: logging
-				fmt.Printf("redis queue returned %d unacked messages\n", unackedReturned)
+				// fmt.Printf("redis queue returned %d unacked messages\n", unackedReturned)
 			}
 
 			// rejectedReturned, err := queue.ReturnRejected(10)

@@ -11,7 +11,7 @@ func TestMemoryStorage(t *testing.T) {
 	registry := NewSimpleRegistry()
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
-	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
 
 	storage, err := NewMemoryStorage(lockerGenerator, registry, snapshot, "")
 	if err != nil {
@@ -34,7 +34,7 @@ func BenchmarkMemoryStorageWith2msLatency(b *testing.B) {
 	registry := NewSimpleRegistry()
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
-	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
 
 	storage, err := NewMemoryStorage(lockerGenerator, registry, snapshot, "")
 	if err != nil {

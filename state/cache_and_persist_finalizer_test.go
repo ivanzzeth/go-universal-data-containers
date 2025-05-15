@@ -16,10 +16,10 @@ func TestCacheAndPersistFinalizer(t *testing.T) {
 
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
-	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
+	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
 	cache, _ := NewMemoryStorage(lockerGenerator, registry, cacheSnapshot, "cache")
 
-	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator)
+	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
 	persist, _ := NewMemoryStorage(lockerGenerator, registry, persistSnapshot, "persist")
 
 	f := NewCacheAndPersistFinalizer(100*time.Millisecond, registry, lockerGenerator, cache, persist, "")

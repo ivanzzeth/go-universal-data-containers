@@ -37,7 +37,7 @@ func (f *RedisStorageFactory) GetOrCreateStorage(name string) (Storage, error) {
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f.registry, f, f.SyncLockerGenerator)
+				return NewSimpleStorageSnapshot(f.registry, f, f.SyncLockerGenerator, name)
 			}
 		}
 		snapshot := f.newSnapshot(f)
