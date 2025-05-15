@@ -3,7 +3,6 @@ package state
 import (
 	"context"
 	"errors"
-	"fmt"
 	"reflect"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
@@ -42,7 +41,7 @@ func (s *StateContainer[T]) GetLocker() (locker.SyncLocker, error) {
 		return nil, err
 	}
 
-	fmt.Printf("GetLocker GetStateLockerByName, lockerGenerator: %T, state: %+v\n", s.state.GetLockerGenerator(), s.state)
+	// fmt.Printf("GetLocker GetStateLockerByName, lockerGenerator: %T, state: %+v\n", s.state.GetLockerGenerator(), s.state)
 
 	locker, err := GetStateLockerByName(s.state.GetLockerGenerator(), s.state.StateName(), stateID)
 	if err != nil {
@@ -57,13 +56,31 @@ func (s *StateContainer[T]) GetLocker() (locker.SyncLocker, error) {
 
 func (s *StateContainer[T]) GetAndLock(ctx context.Context) (T, error) {
 	// fmt.Printf("GetAndLock started\n")
-	locker, err := s.GetLocker()
+	l, err := s.GetLocker()
 	if err != nil {
 		return s.nilState(), err
 	}
 
 	// Lock first
-	locker.Lock(ctx)
+lockLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			return s.nilState(), ctx.Err()
+		default:
+			err = l.Lock(ctx)
+			if err != nil {
+				if errors.Is(err, locker.ErrLockTaken) {
+					// fmt.Printf("GetAndLock err: %v\n", err)
+					continue
+				}
+
+				return s.nilState(), err
+			}
+
+			break lockLoop
+		}
+	}
 
 	// then get the value
 	return s.Get(ctx)

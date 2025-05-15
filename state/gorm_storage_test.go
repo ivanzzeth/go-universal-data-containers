@@ -95,7 +95,9 @@ func BenchmarkGORMStorageWith20msLatency(b *testing.B) {
 }
 
 func setupTestGormDB() (*gorm.DB, error) {
-	testDb, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
+	dialactor := sqlite.Open("file::memory:?cache=private")
+	// dialactor := sqlite.Open("file::memory:?cache=shared")
+	testDb, err := gorm.Open(dialactor, &gorm.Config{
 		// DisableForeignKeyConstraintWhenMigrating: true,
 		Logger: logger.Discard,
 	})

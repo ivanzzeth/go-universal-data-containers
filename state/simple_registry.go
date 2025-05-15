@@ -70,8 +70,8 @@ func (s *SimpleRegistry) NewState(name string) (State, error) {
 
 	state := stateInterface.(State)
 
-	fmt.Printf("NewState state, Initialize: %+v, name: %v, registered: %+v\n", state, name, registered)
-	err := state.Initialize(registered.(State).GetLockerGenerator(), name, registered.(State).GetIDMarshaler(), registered.(State).StateIDComponents())
+	// fmt.Printf("NewState state, Initialize: %+v, name: %v, stateIdComponents: %+v\n", state, name, state.(State).StateIDComponents())
+	err := state.Initialize(registered.(State).GetLockerGenerator(), name, registered.(State).GetIDMarshaler(), state.StateIDComponents())
 	if err != nil {
 		return nil, err
 	}

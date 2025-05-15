@@ -6,10 +6,12 @@ import (
 )
 
 var (
-	ErrLockAlreadyExpired = fmt.Errorf("lock already expired")
-	ErrLockNotHeld        = fmt.Errorf("lock not held")
-	ErrLockNotLocked      = fmt.Errorf("lock not locked")
-	ErrLockNotOk          = fmt.Errorf("lock not ok") // For unknown error
+	ErrLockAlreadyExpired  = fmt.Errorf("lock already expired")
+	ErrLockTaken           = fmt.Errorf("lock already taken")
+	ErrLockNotHeld         = fmt.Errorf("lock not held")
+	ErrLockNotLocked       = fmt.Errorf("lock not locked")
+	ErrLockFailedToAcquire = fmt.Errorf("failed to acquire lock")
+	ErrLockNotOk           = fmt.Errorf("lock not ok") // For unknown error
 )
 
 type SyncLockerGenerator interface {

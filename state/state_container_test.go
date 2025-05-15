@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-redsync/redsync/v4/redis/goredis/v9"
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/stretchr/testify/assert"
 )
@@ -36,42 +37,42 @@ func TestMemoryFinalizerStateContainer(t *testing.T) {
 	SpecTestFinalizerStateContainer(t, cache, persist, finalizer, lockerGenerator)
 }
 
-// func TestRedisAndGormFinalizerStateContainer(t *testing.T) {
-// 	db, err := setupTestGormDB()
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
+func TestRedisAndGormFinalizerStateContainer(t *testing.T) {
+	db, err := setupTestGormDB()
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	err = db.AutoMigrate(&TestUserModel{}, &FinalizeState{}, &SnapshotState{})
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
+	err = db.AutoMigrate(&TestUserModel{}, &FinalizeState{}, &SnapshotState{})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	rdb := setupRdb(t)
-// 	redisPool := goredis.NewPool(rdb)
-// 	registry := NewSimpleRegistry()
-// 	lockerGenerator := locker.NewRedisLockerGenerator(redisPool)
-// 	// fmt.Printf("TestFinalizerStateContainer: lockerGenerator:%p\n", lockerGenerator)
+	rdb := setupRdb(t)
+	redisPool := goredis.NewPool(rdb)
+	registry := NewSimpleRegistry()
+	lockerGenerator := locker.NewRedisLockerGenerator(redisPool)
+	// fmt.Printf("TestFinalizerStateContainer: lockerGenerator:%p\n", lockerGenerator)
 
-// 	err = registry.RegisterState(MustNewTestUserModel(lockerGenerator, "", ""))
-// 	if err != nil {
-// 		t.Fatal(err)
-// 	}
+	err = registry.RegisterState(MustNewTestUserModel(lockerGenerator, "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-// 	storageFactory := NewRedisStorageFactory(rdb, registry, lockerGenerator, nil)
-// 	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
-// 	cache, _ := NewRedisStorage(lockerGenerator, rdb, registry, cacheSnapshot, "")
-// 	cacheSnapshot.SetStorageForSnapshot(cache)
+	storageFactory := NewRedisStorageFactory(rdb, registry, lockerGenerator, nil)
+	cacheSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
+	cache, _ := NewRedisStorage(lockerGenerator, rdb, registry, cacheSnapshot, "")
+	cacheSnapshot.SetStorageForSnapshot(cache)
 
-// 	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
-// 	persist, _ := NewGORMStorage(lockerGenerator, db, registry, persistSnapshot, "")
-// 	persistSnapshot.SetStorageForSnapshot(persist)
+	persistSnapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
+	persist, _ := NewGORMStorage(lockerGenerator, db, registry, persistSnapshot, "")
+	persistSnapshot.SetStorageForSnapshot(persist)
 
-// 	finalizer := NewCacheAndPersistFinalizer(2*time.Second, registry, lockerGenerator, cache, persist, "")
-// 	defer finalizer.Close()
+	finalizer := NewCacheAndPersistFinalizer(2*time.Second, registry, lockerGenerator, cache, persist, "")
+	defer finalizer.Close()
 
-// 	SpecTestFinalizerStateContainer(t, cache, persist, finalizer, lockerGenerator)
-// }
+	SpecTestFinalizerStateContainer(t, cache, persist, finalizer, lockerGenerator)
+}
 
 func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, finalizer Finalizer, lockerGenerator locker.SyncLockerGenerator) {
 	t.Run("Single instance access states", func(t *testing.T) {
@@ -129,7 +130,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 
 		// Load user1 from persist
 		_, err = persist.LoadState(context.Background(), user1.StateName(), user1StateID)
-		assert.Equal(t, err, ErrStateNotFound)
+		assert.Equal(t, ErrStateNotFound, err)
 
 		// Finalize states into persist database
 		err = finalizer.FinalizeAllCachedStates(context.Background())
@@ -151,7 +152,9 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		// Simulate multiple instances
 		var wg sync.WaitGroup
 		errChan := make(chan error, 100)
-		for i := 0; i < 10; i++ {
+
+		count := 10
+		for i := 0; i < count; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -164,10 +167,11 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 				user2, err := user2Container.GetAndLock(context.Background())
 				if err != nil {
 					errChan <- err
+					return
 				}
 				defer func() {
-					user2.Unlock(context.Background())
-					fmt.Printf("goroutine: %d, released %v locker\n", i, "user2 "+user2Id)
+					err := user2.Unlock(context.Background())
+					fmt.Printf("goroutine: %d, released %v locker, err: %v\n", i, "user2 "+user2Id, err)
 				}()
 
 				fmt.Printf("goroutine: %d, user3 %v GetAndLock\n", i, user3Id)
@@ -175,13 +179,14 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 				user3, err := user3Container.GetAndLock(context.Background())
 				if err != nil {
 					errChan <- err
+					return
 				}
 				defer func() {
-					user3.Unlock(context.Background())
-					fmt.Printf("goroutine: %d, released %v locker\n", i, "user3 "+user2Id)
+					err := user3.Unlock(context.Background())
+					fmt.Printf("goroutine: %d, released %v locker, err: %v\n", i, "user3 "+user2Id, err)
 				}()
 
-				fmt.Printf("goroutine: %d, Update\n", i)
+				fmt.Printf("goroutine: %d, Update states\n", i)
 
 				user2.Height += 2
 				user3.Age++
@@ -189,11 +194,13 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 				err = user2Container.Save(context.Background())
 				if err != nil {
 					errChan <- err
+					return
 				}
 
 				err = user3Container.Save(context.Background())
 				if err != nil {
 					errChan <- err
+					return
 				}
 			}()
 		}
@@ -217,7 +224,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 			t.Fatal(err)
 		}
 
-		assert.Equal(t, 20, newUser2.Height)
-		assert.Equal(t, 10, newUser3.Age)
+		assert.Equal(t, 2*count, newUser2.Height)
+		assert.Equal(t, count, newUser3.Age)
 	})
 }
