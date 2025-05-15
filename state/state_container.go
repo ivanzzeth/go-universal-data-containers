@@ -55,7 +55,7 @@ func (s *StateContainer[T]) GetLocker() (locker.SyncLocker, error) {
 	return locker, nil
 }
 
-func (s *StateContainer[T]) GetAndLock() (T, error) {
+func (s *StateContainer[T]) GetAndLock(ctx context.Context) (T, error) {
 	// fmt.Printf("GetAndLock started\n")
 	locker, err := s.GetLocker()
 	if err != nil {
@@ -63,13 +63,13 @@ func (s *StateContainer[T]) GetAndLock() (T, error) {
 	}
 
 	// Lock first
-	locker.Lock(context.TODO())
+	locker.Lock(ctx)
 
 	// then get the value
-	return s.Get()
+	return s.Get(ctx)
 }
 
-func (s *StateContainer[T]) Get() (T, error) {
+func (s *StateContainer[T]) Get(ctx context.Context) (T, error) {
 	if len(s.state.StateIDComponents()) == 0 {
 		return s.nilState(), ErrStateIDComponents
 	}
@@ -79,7 +79,7 @@ func (s *StateContainer[T]) Get() (T, error) {
 		return s.state, err
 	}
 
-	state, err := s.finalizer.LoadState(s.state.StateName(), stateID)
+	state, err := s.finalizer.LoadState(ctx, s.state.StateName(), stateID)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
 			return s.nilState(), err
@@ -123,16 +123,16 @@ func (s *StateContainer[T]) Unwrap() T {
 	return s.state
 }
 
-func (s *StateContainer[T]) Save() error {
-	return s.finalizer.SaveState(s.state)
+func (s *StateContainer[T]) Save(ctx context.Context) error {
+	return s.finalizer.SaveState(ctx, s.state)
 }
 
-func (s *StateContainer[T]) Delete() error {
-	return s.finalizer.ClearStates(s.state)
+func (s *StateContainer[T]) Delete(ctx context.Context) error {
+	return s.finalizer.ClearStates(ctx, s.state)
 }
 
-func (s *StateContainer[T]) DeleteCache() error {
-	return s.finalizer.ClearCacheStates(s.state)
+func (s *StateContainer[T]) DeleteCache(ctx context.Context) error {
+	return s.finalizer.ClearCacheStates(ctx, s.state)
 }
 
 func (s *StateContainer[T]) nilState() T {

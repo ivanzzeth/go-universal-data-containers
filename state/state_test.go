@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
@@ -49,7 +50,7 @@ func (u *TestUserModel) Get() error {
 		return err
 	}
 
-	state, err := u.finalizer.LoadState(u.StateName(), stateID)
+	state, err := u.finalizer.LoadState(context.TODO(), u.StateName(), stateID)
 	if err != nil {
 		return err
 	}

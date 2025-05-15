@@ -80,7 +80,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		// 1. go-routines if the implementation of SyncLocker is like sync.Mutex or
 		// 2. micro-services if the implementation of SyncLocker is distributed locker.
 		// t.Logf("user1: %+v", user1Container.Unwrap())
-		user1, err := user1Container.GetAndLock()
+		user1, err := user1Container.GetAndLock(context.Background())
 		// user1, err := user1Container.Get()
 		if err != nil {
 			t.Fatal(err)
@@ -104,7 +104,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		user1.Height = 180
 
 		// Then save changes in memory into cache
-		err = user1Container.Save()
+		err = user1Container.Save(context.Background())
 		// err = user1Container.Wrap(user1).Save()
 		if err != nil {
 			t.Fatal(err)
@@ -116,7 +116,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		fmt.Printf("User1 unlocked, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
 
 		// Load user1 from cache
-		newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server")).Get()
+		newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server")).Get(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -132,7 +132,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		assert.Equal(t, err, ErrStateNotFound)
 
 		// Finalize states into persist database
-		err = finalizer.FinalizeAllCachedStates()
+		err = finalizer.FinalizeAllCachedStates(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +161,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 				}()
 
 				fmt.Printf("goroutine: %d, user2 %v GetAndLock\n", i, user2Id)
-				user2, err := user2Container.GetAndLock()
+				user2, err := user2Container.GetAndLock(context.Background())
 				if err != nil {
 					errChan <- err
 				}
@@ -172,7 +172,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 
 				fmt.Printf("goroutine: %d, user3 %v GetAndLock\n", i, user3Id)
 
-				user3, err := user3Container.GetAndLock()
+				user3, err := user3Container.GetAndLock(context.Background())
 				if err != nil {
 					errChan <- err
 				}
@@ -186,12 +186,12 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 				user2.Height += 2
 				user3.Age++
 
-				err = user2Container.Save()
+				err = user2Container.Save(context.Background())
 				if err != nil {
 					errChan <- err
 				}
 
-				err = user3Container.Save()
+				err = user3Container.Save(context.Background())
 				if err != nil {
 					errChan <- err
 				}
@@ -207,12 +207,12 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 			}
 		}
 
-		newUser2, err := user2Container.Get()
+		newUser2, err := user2Container.Get(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		newUser3, err := user3Container.Get()
+		newUser3, err := user3Container.Get(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

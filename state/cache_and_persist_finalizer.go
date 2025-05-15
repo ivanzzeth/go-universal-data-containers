@@ -94,7 +94,7 @@ func (s *CacheAndPersistFinalizer) Close() {
 	close(s.exitChannel)
 }
 
-func (s *CacheAndPersistFinalizer) LoadState(name string, id string) (State, error) {
+func (s *CacheAndPersistFinalizer) LoadState(ctx context.Context, name string, id string) (State, error) {
 	state, err := s.cache.LoadState(name, id)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
@@ -119,29 +119,29 @@ func (s *CacheAndPersistFinalizer) LoadState(name string, id string) (State, err
 	return state, nil
 }
 
-func (s *CacheAndPersistFinalizer) SaveState(state State) error {
+func (s *CacheAndPersistFinalizer) SaveState(ctx context.Context, state State) error {
 	return s.cache.SaveStates(state)
 }
 
-func (s *CacheAndPersistFinalizer) SaveStates(states ...State) error {
+func (s *CacheAndPersistFinalizer) SaveStates(ctx context.Context, states ...State) error {
 	return s.cache.SaveStates(states...)
 }
 
-func (s *CacheAndPersistFinalizer) ClearCacheStates(states ...State) error {
+func (s *CacheAndPersistFinalizer) ClearCacheStates(ctx context.Context, states ...State) error {
 	return s.cache.ClearStates(states...)
 }
 
-func (s *CacheAndPersistFinalizer) ClearPersistStates(states ...State) error {
+func (s *CacheAndPersistFinalizer) ClearPersistStates(ctx context.Context, states ...State) error {
 	return s.persist.ClearStates(states...)
 }
 
-func (s *CacheAndPersistFinalizer) ClearStates(states ...State) error {
-	err := s.ClearCacheStates(states...)
+func (s *CacheAndPersistFinalizer) ClearStates(ctx context.Context, states ...State) error {
+	err := s.ClearCacheStates(ctx, states...)
 	if err != nil {
 		return err
 	}
 
-	err = s.ClearPersistStates(states...)
+	err = s.ClearPersistStates(ctx, states...)
 	if err != nil {
 		return err
 	}
@@ -149,15 +149,15 @@ func (s *CacheAndPersistFinalizer) ClearStates(states ...State) error {
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) (err error) {
+func (s *CacheAndPersistFinalizer) FinalizeSnapshot(ctx context.Context, snapshotID string) (err error) {
 	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
 
-	finalizeState, err := stateContainer.GetAndLock()
+	finalizeState, err := stateContainer.GetAndLock(ctx)
 
 	if err != nil {
 		return
 	}
-	defer finalizeState.Unlock(context.TODO())
+	defer finalizeState.Unlock(ctx)
 
 	// Double check lastTime
 	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
@@ -166,12 +166,12 @@ func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) (err erro
 
 	finalizeState.LastFinalizeTime = time.Now()
 
-	err = s.finalizeSnapshot(snapshotID)
+	err = s.finalizeSnapshot(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 
-	err = stateContainer.Save()
+	err = stateContainer.Save(ctx)
 	if err != nil {
 		return
 	}
@@ -179,7 +179,7 @@ func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) (err erro
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) finalizeSnapshot(snapshotID string) error {
+func (s *CacheAndPersistFinalizer) finalizeSnapshot(ctx context.Context, snapshotID string) error {
 	snapshot, err := s.StorageSnapshot.GetSnapshot(snapshotID)
 	if err != nil {
 		return err
@@ -198,15 +198,15 @@ func (s *CacheAndPersistFinalizer) finalizeSnapshot(snapshotID string) error {
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() (err error) {
+func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates(ctx context.Context) (err error) {
 	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
 
-	finalizeState, err := stateContainer.GetAndLock()
+	finalizeState, err := stateContainer.GetAndLock(ctx)
 
 	if err != nil {
 		return
 	}
-	defer finalizeState.Unlock(context.TODO())
+	defer finalizeState.Unlock(ctx)
 
 	// Double check lastTime
 	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
@@ -215,12 +215,12 @@ func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() (err error) {
 
 	finalizeState.LastFinalizeTime = time.Now()
 
-	err = s.finalizeAllCachedStates()
+	err = s.finalizeAllCachedStates(ctx)
 	if err != nil {
 		return
 	}
 
-	err = stateContainer.Save()
+	err = stateContainer.Save(ctx)
 	if err != nil {
 		return
 	}
@@ -228,7 +228,7 @@ func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() (err error) {
 	return
 }
 
-func (s *CacheAndPersistFinalizer) finalizeAllCachedStates() error {
+func (s *CacheAndPersistFinalizer) finalizeAllCachedStates(ctx context.Context) error {
 	states, err := s.cache.LoadAllStates()
 	if err != nil {
 		return err
@@ -239,7 +239,7 @@ func (s *CacheAndPersistFinalizer) finalizeAllCachedStates() error {
 		return err
 	}
 
-	err = s.ClearAllCachedStates()
+	err = s.ClearAllCachedStates(ctx)
 	if err != nil {
 		return err
 	}
@@ -253,7 +253,7 @@ func (s *CacheAndPersistFinalizer) finalizeAllCachedStates() error {
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) ClearAllCachedStates() error {
+func (s *CacheAndPersistFinalizer) ClearAllCachedStates(ctx context.Context) error {
 	return s.cache.ClearAllStates()
 }
 
@@ -280,7 +280,7 @@ func (s *CacheAndPersistFinalizer) run() {
 			return
 		case <-s.ticker:
 			if s.autoFinalizeEnabled.Load() {
-				err := s.FinalizeAllCachedStates()
+				err := s.FinalizeAllCachedStates(context.TODO())
 				if err != nil {
 					// TODO: logging
 					// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)

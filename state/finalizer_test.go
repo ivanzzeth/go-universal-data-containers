@@ -12,7 +12,7 @@ import (
 
 func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator, finalizer Finalizer, finalizerFactory func() Finalizer) {
 	t.Run("Test basic cases", func(t *testing.T) {
-		err := finalizer.ClearAllCachedStates()
+		err := finalizer.ClearAllCachedStates(context.TODO())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -35,7 +35,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 			t.Fatal(err)
 		}
 
-		_, err = finalizer.LoadState(user1.StateName(), user1StateID)
+		_, err = finalizer.LoadState(context.Background(), user1.StateName(), user1StateID)
 		assert.Equal(t, err, ErrStateNotFound)
 
 		user1.Name = user1Name
@@ -43,7 +43,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 		user1.Age = 1
 		user1.Height = 1
 
-		err = finalizer.SaveState(user1)
+		err = finalizer.SaveState(context.Background(), user1)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -71,7 +71,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 			t.Fatal(err)
 		}
 
-		_, err = finalizer.LoadState(user1.StateName(), user1StateID)
+		_, err = finalizer.LoadState(context.Background(), user1.StateName(), user1StateID)
 		assert.Equal(t, ErrStateNotFound, err)
 
 		// Revert to snapshot2
@@ -86,7 +86,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 		if err != nil {
 			t.Fatal(err)
 		}
-		newUserState1, err := finalizer.LoadState(user1.StateName(), user1StateID)
+		newUserState1, err := finalizer.LoadState(context.Background(), user1.StateName(), user1StateID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +114,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 		}
 
 		for i := 0; i < len(finalizers); i++ {
-			err := finalizers[i].ClearAllCachedStates()
+			err := finalizers[i].ClearAllCachedStates(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -132,7 +132,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 		user1ContainerForPersist := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server"))
 
 		for i := 0; i < 10; i++ {
-			user1, err := user1Container.GetAndLock()
+			user1, err := user1Container.GetAndLock(context.Background())
 			if err != nil {
 				fmt.Printf("GetAndLock failed: %v\n", err)
 				continue
@@ -140,7 +140,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 
 			user1.Age++
 
-			err = user1Container.Save()
+			err = user1Container.Save(context.Background())
 			if err != nil {
 				user1.Unlock(context.Background())
 
@@ -161,7 +161,7 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 
 		time.Sleep(1 * time.Second)
 
-		user1Cached, err := user1Container.Get()
+		user1Cached, err := user1Container.Get(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

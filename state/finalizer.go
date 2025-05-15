@@ -1,6 +1,9 @@
 package state
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Finalize uses two types of storage: cache and persist
 // read/write from/to cache first and then
@@ -15,23 +18,23 @@ type Finalizer interface {
 
 	// LoadState loads state from cache first, if not found, load from persist
 	// if not found, return ErrStateNotFound
-	LoadState(name string, id string) (State, error)
+	LoadState(ctx context.Context, name string, id string) (State, error)
 
 	// SaveState/SaveStates saves state(s) to cache
-	SaveState(state State) error
-	SaveStates(state ...State) error
+	SaveState(ctx context.Context, state State) error
+	SaveStates(ctx context.Context, state ...State) error
 
-	ClearCacheStates(states ...State) error
-	ClearPersistStates(states ...State) error
-	ClearStates(states ...State) error
-	ClearAllCachedStates() error
+	ClearCacheStates(ctx context.Context, states ...State) error
+	ClearPersistStates(ctx context.Context, states ...State) error
+	ClearStates(ctx context.Context, states ...State) error
+	ClearAllCachedStates(ctx context.Context) error
 
 	// Fianlize* functions are used to finalize snapshot/cached states into persist,
 	// and they are only called once at the same time until all states are finalized.
 	// It's safe for distributed system if you're using distributed locker like
 	// `RedSyncMutexWrapper` implemented in package `locker`
-	FinalizeSnapshot(snapshotID string) error
-	FinalizeAllCachedStates() error
+	FinalizeSnapshot(ctx context.Context, snapshotID string) error
+	FinalizeAllCachedStates(ctx context.Context) error
 
 	// EnableAutoFinalizeAllCachedStates allows you to enable/disable auto finalize.
 	// false by default.
