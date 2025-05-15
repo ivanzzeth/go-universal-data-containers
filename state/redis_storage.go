@@ -290,6 +290,9 @@ func (s *RedisStorage) ClearStates(states ...State) (err error) {
 		if err != nil {
 			return err
 		}
+
+		time.Sleep(s.delay)
+
 		_, err = s.redisClient.HDel(context.Background(), s.getStateKey(state.StateName()), id).Result()
 		if err != nil {
 			return fmt.Errorf("clear all states failed: %v", err)

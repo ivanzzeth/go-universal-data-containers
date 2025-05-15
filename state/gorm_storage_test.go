@@ -74,6 +74,23 @@ func BenchmarkGORMStorageWith20msLatency(b *testing.B) {
 		b.Fatal(err)
 	}
 	storage.setDelay(20 * time.Millisecond)
+
+	// tables, err := testDb.Migrator().GetTables()
+	// if err != nil {
+	// 	b.Fatal(err)
+	// }
+
+	// sqlDB, _ := testDb.DB()
+
+	// for _, table := range tables {
+	// 	res, err := sqlDB.Query(fmt.Sprintf("PRAGMA table_info(%v)", table))
+	// 	if err != nil {
+	// 		b.Fatal(err)
+	// 	}
+
+	// 	b.Logf("table %v: %+v", table, res)
+	// }
+
 	SpecBenchmarkStorage(b, registry, storage)
 }
 

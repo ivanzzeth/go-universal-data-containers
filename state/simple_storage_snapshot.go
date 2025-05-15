@@ -18,7 +18,7 @@ type SnapshotState struct {
 	GormModel
 	BaseState
 
-	SnapshotID string `gorm:"not null;uniqueIndex"`
+	SnapshotID string `gorm:"not null;index"`
 }
 
 func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, name, snapshotId string) *SnapshotState {
@@ -223,6 +223,7 @@ func (s *SimpleStorageSnapshot) createSnapshot(snapshotID string) (storage Stora
 	snapshot.CreatedAt = time.Now()
 	snapshot.UpdatedAt = time.Now()
 
+	// fmt.Printf("SnapshotStates createSnapshot: %+v\n", snapshot)
 	err = sm.SaveStates(snapshot)
 	if err != nil {
 		return

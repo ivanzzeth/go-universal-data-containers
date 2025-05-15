@@ -541,6 +541,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 
 	b.Run("Test single revert for 10k states", func(b *testing.B) {
 		users := []State{}
+		// for i := 0; i < 10; i++ {
 		for i := 0; i < 10_000; i++ {
 			u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
 			u1.Age = 1
@@ -554,6 +555,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 			b.Fatal(err)
 		}
 
+		// fmt.Printf("storage.SnapshotStates() >>>>>>>\n")
 		snapshot2, err := storage.SnapshotStates()
 		if err != nil {
 			b.Fatal(err)

@@ -104,8 +104,8 @@ type StateManagement struct {
 	GormModel
 	BaseState
 
-	StateNamee string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
-	StateID    string `gorm:"not null; uniqueIndex:statename_stateid_partition"`
+	StateNamee string `gorm:"not null; index"`
+	StateID    string `gorm:"not null; index"`
 }
 
 func MustNewStateManagement(lockerGenerator locker.SyncLockerGenerator, stateName, stateID, partition string) *StateManagement {
@@ -150,7 +150,11 @@ func NewGORMStorage(lockerGenerator locker.SyncLockerGenerator, db *gorm.DB, reg
 	snapshot.SetStorageForSnapshot(s)
 	s.StorageSnapshot = snapshot
 
-	err = db.AutoMigrate(&StateManagement{})
+	err = db.AutoMigrate(
+		&StateManagement{},
+		&SnapshotState{},
+		&FinalizeState{},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -276,6 +280,10 @@ func (s *GORMStorage) LoadState(name string, id string) (State, error) {
 }
 
 func (s *GORMStorage) SaveStates(states ...State) error {
+	// fmt.Println()
+	// fmt.Println("-----------------------------------------")
+	// fmt.Printf("Storage Name: %v\n", s.partition)
+
 	models := make([]any, 0, 2*len(states))
 	for _, state := range states {
 		stateID, err := GetStateID(state)
@@ -294,6 +302,7 @@ func (s *GORMStorage) SaveStates(states ...State) error {
 
 		sm := MustNewStateManagement(locker.NewMemoryLockerGenerator(), state.StateName(), stateID, s.partition)
 
+		// fmt.Printf("StateManagement: %+v\n", sm)
 		models = append(models, sm)
 
 		// fmt.Printf("SaveStates: state: %+v, sm: %+v\n", state, sm)
@@ -418,7 +427,7 @@ func execGormBatchOp(db *gorm.DB, op gormBatchOperation, conds clause.OnConflict
 	}
 
 	sql := strings.Join(sqlStatements, ";")
-	// log.Println("SQL:", sql)
+	// fmt.Println("SQL:", sql)
 	return db.Exec(sql).Error
 }
 
