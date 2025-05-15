@@ -150,11 +150,18 @@ func NewGORMStorage(lockerGenerator locker.SyncLockerGenerator, db *gorm.DB, reg
 	snapshot.SetStorageForSnapshot(s)
 	s.StorageSnapshot = snapshot
 
-	err = db.AutoMigrate(
-		&StateManagement{},
-		&SnapshotState{},
-		&FinalizeState{},
-	)
+	err = registry.RegisterState(MustNewStateManagement(lockerGenerator, "", "", partition))
+	if err != nil {
+		return nil, err
+	}
+
+	registeredStates := registry.GetRegisteredStates()
+	models := []any{}
+	for _, state := range registeredStates {
+		models = append(models, state)
+	}
+
+	err = db.AutoMigrate(models...)
 	if err != nil {
 		return nil, err
 	}

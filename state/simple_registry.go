@@ -31,6 +31,16 @@ func (s *SimpleRegistry) RegisterState(state State) error {
 	return nil
 }
 
+func (s *SimpleRegistry) GetRegisteredStates() []State {
+	var states []State
+	s.states.Range(func(key, value any) bool {
+		states = append(states, value.(State))
+		return true
+	})
+
+	return states
+}
+
 func (s *SimpleRegistry) NewState(name string) (State, error) {
 	registered, ok := s.states.Load(name)
 	if !ok {
