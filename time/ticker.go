@@ -1,6 +1,7 @@
 package time
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -25,7 +26,7 @@ type Ticker interface {
 type DistributedTicker struct {
 	name string
 	q    queue.Queue
-	// locker          sync.Locker
+	// locker          SyncLocker
 	lockerGenerator locker.SyncLockerGenerator
 	registry        state.Registry
 	storage         state.Storage
@@ -130,8 +131,8 @@ func (d *DistributedTicker) run() {
 
 				// log.Printf("tick4\n")
 
-				stateLocker.Lock()
-				defer stateLocker.Unlock()
+				stateLocker.Lock(context.TODO())
+				defer stateLocker.Unlock(context.TODO())
 
 				tState, err := d.storage.LoadState(stateTmp.StateName(), stateID)
 				if err != nil {
@@ -162,7 +163,7 @@ func (d *DistributedTicker) run() {
 
 				tickerState.LastTickTime = time.Now()
 
-				err = d.q.Enqueue([]byte{})
+				err = d.q.Enqueue(context.TODO(), []byte{})
 				if err != nil {
 					return
 				}

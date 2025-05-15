@@ -1,19 +1,16 @@
 package locker
 
 import (
-	"fmt"
+	"context"
 	"sync"
-	"sync/atomic"
-	"time"
 
 	"github.com/go-redsync/redsync/v4"
 	redsyncredis "github.com/go-redsync/redsync/v4/redis"
 )
 
 type RedSyncMutexWrapper struct {
-	name    string
-	locking atomic.Bool
-	mutex   *redsync.Mutex
+	name  string
+	mutex *redsync.Mutex
 }
 
 func NewRedSyncMutexWrapper(name string, mutex *redsync.Mutex) *RedSyncMutexWrapper {
@@ -27,62 +24,26 @@ func NewRedSyncMutexWrapper(name string, mutex *redsync.Mutex) *RedSyncMutexWrap
 	}
 }
 
-func (l *RedSyncMutexWrapper) Lock() {
-	fmt.Printf("RedSyncMutexWrapper require locker %v %p\n", l.name, l)
-
-	for {
-		err := l.mutex.Lock()
-		if err != nil {
-			// TODO: logging
-			fmt.Printf("RedSyncMutexWrapper require locker %v %p failed, err: %v\n", l.name, l, err)
-			time.Sleep(100 * time.Millisecond)
-			continue
-		}
-
-		break
+func (l *RedSyncMutexWrapper) Lock(ctx context.Context) error {
+	err := l.mutex.LockContext(ctx)
+	if err != nil {
+		return err
 	}
 
-	l.locking.Store(true)
-
-	// go func() {
-	// 	for l.locking.Load() {
-	// 		util := l.mutex.Until()
-	// 		fmt.Printf("RedSyncMutexWrapper extended locker %v, until: %v\n", l.name, util)
-
-	// 		ok, err := l.mutex.Extend()
-	// 		if err != nil || !ok {
-	// 			fmt.Printf("RedSyncMutexWrapper extend locker failed %v, ok: %v, until: %v err: %v\n", l.name, ok, util, err)
-	// 			time.Sleep(100 * time.Millisecond)
-	// 			continue
-	// 		}
-
-	// 		time.Sleep(10 * time.Millisecond)
-	// 	}
-	// }()
+	return nil
 }
 
-func (l *RedSyncMutexWrapper) Unlock() {
-	fmt.Printf("RedSyncMutexWrapper release locker %v %p\n", l.name, l)
-	ok, err := l.mutex.Unlock()
-	if err != nil || !ok {
-		// TODO: logging
-		fmt.Printf("RedSyncMutexWrapper release locker %v %p failed, err: %v, ok: %v\n", l.name, l, err, ok)
-		time.Sleep(100 * time.Millisecond)
+func (l *RedSyncMutexWrapper) Unlock(ctx context.Context) error {
+	ok, err := l.mutex.UnlockContext(ctx)
+	if err != nil {
+		return err
 	}
 
-	// for {
-	// 	ok, err := l.mutex.Unlock()
-	// 	if err != nil || !ok {
-	// 		// TODO: logging
-	// 		fmt.Printf("RedSyncMutexWrapper release locker %v failed, err: %v, ok: %v\n", l.name, err, ok)
-	// 		time.Sleep(100 * time.Millisecond)
-	// 		continue
-	// 	}
+	if !ok {
+		return ErrLockNotOk
+	}
 
-	// 	break
-	// }
-
-	l.locking.Store(false)
+	return nil
 }
 
 type RedisLockerGenerator struct {
@@ -104,7 +65,7 @@ func (o RedisMutextOption) Apply(m *redsync.Mutex) {
 	// TODO:
 }
 
-func (g *RedisLockerGenerator) CreateSyncLocker(name string) (sync.Locker, error) {
+func (g *RedisLockerGenerator) CreateSyncLocker(name string) (SyncLocker, error) {
 	mv, _ := g.table.LoadOrStore(name, NewRedSyncMutexWrapper(name, g.rsync.NewMutex(name, &RedisMutextOption{})))
 	return mv.(*RedSyncMutexWrapper), nil
 }

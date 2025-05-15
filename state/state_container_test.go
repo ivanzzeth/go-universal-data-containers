@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -75,9 +76,9 @@ func TestMemoryFinalizerStateContainer(t *testing.T) {
 func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, finalizer Finalizer, lockerGenerator locker.SyncLockerGenerator) {
 	t.Run("Single instance access states", func(t *testing.T) {
 		user1Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server"))
-		// Use sync.Locker to make sure concurrent safety accross
-		// 1. go-routines if the implementation of sync.Locker is like sync.Mutex or
-		// 2. micro-services if the implementation of sync.Locker is distributed locker.
+		// Use SyncLocker to make sure concurrent safety accross
+		// 1. go-routines if the implementation of SyncLocker is like sync.Mutex or
+		// 2. micro-services if the implementation of SyncLocker is distributed locker.
 		// t.Logf("user1: %+v", user1Container.Unwrap())
 		user1, err := user1Container.GetAndLock()
 		// user1, err := user1Container.Get()
@@ -110,7 +111,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		}
 		fmt.Printf("User1 unlock, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
 
-		user1.Unlock()
+		user1.Unlock(context.Background())
 
 		fmt.Printf("User1 unlocked, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
 
@@ -165,7 +166,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 					errChan <- err
 				}
 				defer func() {
-					user2.Unlock()
+					user2.Unlock(context.Background())
 					fmt.Printf("goroutine: %d, released %v locker\n", i, "user2 "+user2Id)
 				}()
 
@@ -176,7 +177,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 					errChan <- err
 				}
 				defer func() {
-					user3.Unlock()
+					user3.Unlock(context.Background())
 					fmt.Printf("goroutine: %d, released %v locker\n", i, "user3 "+user2Id)
 				}()
 

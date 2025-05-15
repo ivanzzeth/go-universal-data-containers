@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -400,8 +401,8 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				user1.Lock()
-				defer user1.Unlock()
+				user1.Lock(context.Background())
+				defer user1.Unlock(context.Background())
 				user1.Age++
 				err := storage.SaveStates(user1)
 				if err != nil {

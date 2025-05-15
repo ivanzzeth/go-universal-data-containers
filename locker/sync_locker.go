@@ -1,17 +1,32 @@
 package locker
 
-import "sync"
+import (
+	"context"
+	"fmt"
+)
+
+var (
+	ErrLockAlreadyExpired = fmt.Errorf("lock already expired")
+	ErrLockNotHeld        = fmt.Errorf("lock not held")
+	ErrLockNotLocked      = fmt.Errorf("lock not locked")
+	ErrLockNotOk          = fmt.Errorf("lock not ok") // For unknown error
+)
 
 type SyncLockerGenerator interface {
-	CreateSyncLocker(name string) (sync.Locker, error)
+	CreateSyncLocker(name string) (SyncLocker, error)
+}
+
+type SyncLocker interface {
+	Lock(ctx context.Context) error
+	Unlock(ctx context.Context) error
 }
 
 type SyncRWLockerGenerator interface {
-	CreateSyncRWLocker(name string) (sync.Locker, error)
+	CreateSyncRWLocker(name string) (SyncRWLocker, error)
 }
 
 type SyncRWLocker interface {
-	sync.Locker
-	RLock()
-	RUnlock()
+	SyncLocker
+	RLock(ctx context.Context) error
+	RUnlock(ctx context.Context) error
 }

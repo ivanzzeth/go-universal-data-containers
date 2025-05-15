@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"errors"
 )
 
@@ -52,14 +53,14 @@ type Queue interface {
 
 	// Push data to end of queue
 	// Failed if queue is full or closed
-	Enqueue([]byte) error
+	Enqueue(context.Context, []byte) error
 
 	// Pop data from beginning of queue without message confirmation
 	// Failed if queue is empty
 
 	// The implementation MUST set the retryCount of the message to 0 if its retryCount > MaxHandleFailures,
 	// in the case, the message is from DLQ redriving.
-	Dequeue() (Message, error)
+	Dequeue(context.Context) (Message, error)
 
 	// Subscribe queue with message confirmation.
 	// Once handler returns error, it'll automatically put message back to queue using `Recover` mechanism internally.
@@ -80,12 +81,12 @@ type Recoverable interface {
 	// If the queue supports `visibility window` like AWS SQS, the message will be put back to queue atomically without calling `Recover`.
 	// It's useful if the panic is from outside of the queue handler.
 	// But it's recommended to use `Recover` if the panic is from inside the queue handler for retrying the message fast.
-	Recover(Message) error
+	Recover(context.Context, Message) error
 }
 
 type Purgeable interface {
 	// Clean up the queue
-	Purge() error
+	Purge(context.Context) error
 }
 
 type DLQer interface {
@@ -96,7 +97,7 @@ type DLQ interface {
 	Queue
 
 	// Push `items` of messages to associated Queue
-	Redrive(items int) error
+	Redrive(ctx context.Context, items int) error
 
 	AssociatedQueue() Queue
 }

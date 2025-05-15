@@ -2,6 +2,7 @@ package queue
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,14 +41,14 @@ func init() {
 func SpecTestQueueSequencial(t *testing.T, q Queue) {
 	maxSize := getMaxSize(q)
 	for i := 0; i < maxSize; i++ {
-		err := q.Enqueue([]byte{byte(i)})
+		err := q.Enqueue(context.Background(), []byte{byte(i)})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	if q.MaxSize() != UnlimitedSize {
-		err := q.Enqueue([]byte{byte(maxSize + 1)})
+		err := q.Enqueue(context.Background(), []byte{byte(maxSize + 1)})
 		if !errors.Is(err, ErrQueueFull) {
 			t.Fatal("expected", ErrQueueFull, "got", err)
 		}
@@ -55,7 +56,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 
 	allData := [][]byte{}
 	for i := 0; i < maxSize; i++ {
-		data, err := q.Dequeue()
+		data, err := q.Dequeue(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -73,7 +74,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 		}
 	}
 
-	data, err := q.Dequeue()
+	data, err := q.Dequeue(context.Background())
 	if !errors.Is(err, ErrQueueEmpty) {
 		t.Fatal("expected", ErrQueueEmpty, "got", err)
 	}
@@ -84,7 +85,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 
 	q.Close()
 
-	err = q.Enqueue([]byte{byte(0)})
+	err = q.Enqueue(context.Background(), []byte{byte(0)})
 	if !errors.Is(err, ErrQueueClosed) {
 		t.Fatal("expected", ErrQueueClosed, "got", err)
 	}
@@ -96,7 +97,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 	datas := [][]byte{}
 	go func() {
 		for {
-			data, err := q.Dequeue()
+			data, err := q.Dequeue(context.Background())
 			if err != nil {
 				time.Sleep(100 * time.Millisecond)
 				t.Logf("Dequeue failed: %v", err)
@@ -113,7 +114,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := q.Enqueue([]byte{byte(i)})
+			err := q.Enqueue(context.Background(), []byte{byte(i)})
 			errsChan <- err
 		}()
 	}
@@ -170,7 +171,7 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory) {
 		return nil
 	})
 
-	err = q.Enqueue([]byte(fmt.Sprintf("data")))
+	err = q.Enqueue(context.Background(), []byte(fmt.Sprintf("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +265,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 					t.Fatal(err)
 				}
 
-				err = q.Enqueue(data)
+				err = q.Enqueue(context.Background(), data)
 				if err != nil {
 					t.Fatalf("failed to enqueue: %v", err)
 				}

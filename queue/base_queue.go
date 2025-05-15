@@ -1,12 +1,13 @@
 package queue
 
 import (
+	"context"
 	"fmt"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -14,7 +15,7 @@ var (
 )
 
 type BaseQueue struct {
-	m           sync.Locker
+	locker      locker.SyncLocker
 	name        string
 	config      *Config
 	cb          Handler
@@ -27,7 +28,7 @@ func NewBaseQueue(name string, options *Config) (*BaseQueue, error) {
 		return nil, err
 	}
 	q := &BaseQueue{
-		m:           locker,
+		locker:      locker,
 		name:        name,
 		config:      options,
 		exitChannel: make(chan int),
@@ -48,8 +49,8 @@ func (q *BaseQueue) Name() string {
 	return q.name
 }
 
-func (q *BaseQueue) GetLocker() sync.Locker {
-	return q.m
+func (q *BaseQueue) GetLocker() locker.SyncLocker {
+	return q.locker
 }
 
 func (q *BaseQueue) MaxSize() int {
@@ -60,11 +61,11 @@ func (q *BaseQueue) MaxHandleFailures() int {
 	return q.config.MaxHandleFailures
 }
 
-func (q *BaseQueue) Enqueue(data []byte) error {
+func (q *BaseQueue) Enqueue(ctx context.Context, data []byte) error {
 	return common.ErrNotImplemented
 }
 
-func (q *BaseQueue) Dequeue() (Message, error) {
+func (q *BaseQueue) Dequeue(ctx context.Context) (Message, error) {
 	return nil, common.ErrNotImplemented
 }
 

@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"time"
@@ -146,15 +147,15 @@ func (q *RedisQueue) MaxSize() int {
 	return UnlimitedSize
 }
 
-func (q *RedisQueue) Enqueue(data []byte) error {
+func (q *RedisQueue) Enqueue(ctx context.Context, data []byte) error {
 	// fmt.Printf("Enqueue %v\n", data)
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
 	}
 
-	q.GetLocker().Lock()
-	defer q.GetLocker().Unlock()
+	// q.GetLocker().Lock(ctx)
+	// defer q.GetLocker().Unlock(ctx)
 
 	packedData, err := q.Pack(data)
 	if err != nil {
@@ -164,7 +165,7 @@ func (q *RedisQueue) Enqueue(data []byte) error {
 	return q.q.PublishBytes(packedData)
 }
 
-func (q *RedisQueue) Dequeue() (Message, error) {
+func (q *RedisQueue) Dequeue(ctx context.Context) (Message, error) {
 	data, err := q.q.Drain(1)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -185,7 +186,7 @@ func (q *RedisQueue) Dequeue() (Message, error) {
 	}
 
 	if data[0] == redisQueueTestMsg {
-		return q.Dequeue()
+		return q.Dequeue(ctx)
 	}
 
 	packedData := []byte(data[0])
@@ -193,7 +194,7 @@ func (q *RedisQueue) Dequeue() (Message, error) {
 	if err != nil {
 		// Consider the message is test message, just ignore it and dequeue again
 		// fmt.Printf("failed to unpack message: %v\n", err)
-		return q.Dequeue()
+		return q.Dequeue(ctx)
 	}
 
 	if msg.RetryCount() > q.config.MaxHandleFailures {
@@ -249,7 +250,7 @@ func (q *RedisQueue) Subscribe(cb Handler) {
 	}
 }
 
-func (q *RedisQueue) Recover(msg Message) error {
+func (q *RedisQueue) Recover(ctx context.Context, msg Message) error {
 	if msg.RetryCount() >= q.config.MaxHandleFailures {
 		// Just ignore it for now
 		return nil

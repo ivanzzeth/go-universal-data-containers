@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -90,7 +91,7 @@ type idFiller interface {
 // TODO: Unit test
 // DO NOT use this to create snapshot.
 type GORMStorage struct {
-	locker sync.Locker
+	locker locker.SyncLocker
 	db     *gorm.DB
 	// Only used for simulating network latency
 	delay time.Duration
@@ -181,12 +182,12 @@ func (s *GORMStorage) StorageName() string {
 	return s.partition
 }
 
-func (s *GORMStorage) Lock() {
-	s.locker.Lock()
+func (s *GORMStorage) Lock(ctx context.Context) error {
+	return s.locker.Lock(ctx)
 }
 
-func (s *GORMStorage) Unlock() {
-	s.locker.Unlock()
+func (s *GORMStorage) Unlock(ctx context.Context) error {
+	return s.locker.Unlock(ctx)
 }
 
 func (s *GORMStorage) GetStateIDs(name string) ([]string, error) {

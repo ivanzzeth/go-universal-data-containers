@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -57,7 +58,7 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 type MemoryStorage struct {
 	registry Registry
 
-	locker sync.Locker
+	locker locker.SyncLocker
 	StorageSnapshot
 
 	name string
@@ -105,12 +106,12 @@ func (s *MemoryStorage) StorageName() string {
 	return s.name
 }
 
-func (s *MemoryStorage) Lock() {
-	s.locker.Lock()
+func (s *MemoryStorage) Lock(ctx context.Context) error {
+	return s.locker.Lock(ctx)
 }
 
-func (s *MemoryStorage) Unlock() {
-	s.locker.Unlock()
+func (s *MemoryStorage) Unlock(ctx context.Context) error {
+	return s.locker.Unlock(ctx)
 }
 
 func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {

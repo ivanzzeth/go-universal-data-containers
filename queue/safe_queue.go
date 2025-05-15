@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"math"
 	"time"
 
@@ -63,9 +64,9 @@ func (q *SimpleQueue) MaxHandleFailures() int {
 	return q.queue.MaxHandleFailures()
 }
 
-func (q *SimpleQueue) Enqueue(data []byte) error {
+func (q *SimpleQueue) Enqueue(ctx context.Context, data []byte) error {
 	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
-	err := q.queue.Enqueue(data)
+	err := q.queue.Enqueue(ctx, data)
 	if err != nil {
 		metrics.MetricQueueEnqueueErrorTotal.WithLabelValues(q.Name()).Inc()
 		return err
@@ -74,9 +75,9 @@ func (q *SimpleQueue) Enqueue(data []byte) error {
 	return nil
 }
 
-func (q *SimpleQueue) Dequeue() (Message, error) {
+func (q *SimpleQueue) Dequeue(ctx context.Context) (Message, error) {
 	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
-	data, err := q.queue.Dequeue()
+	data, err := q.queue.Dequeue(ctx)
 	if err != nil {
 		metrics.MetricQueueDequeueErrorTotal.WithLabelValues(q.Name()).Inc()
 		return nil, err
@@ -116,7 +117,7 @@ func (q *SimpleQueue) handle(msg Message, cb Handler) (err error) {
 				for i := 0; i < DefaultMaxRetries; i++ {
 					// fmt.Printf("Recover %v\n", b)
 
-					recoverErr = queue.Recover(msg)
+					recoverErr = queue.Recover(context.TODO(), msg)
 					if recoverErr != nil {
 						time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
 						continue
@@ -138,7 +139,7 @@ func (q *SimpleQueue) handle(msg Message, cb Handler) (err error) {
 			var recoverErr error
 			for i := 0; i < DefaultMaxRetries; i++ {
 				// fmt.Printf("Recover2 %v\n", b)
-				recoverErr = q.Recover(msg)
+				recoverErr = q.Recover(context.TODO(), msg)
 				if recoverErr != nil {
 					time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
 					continue
@@ -158,12 +159,12 @@ func (q *SimpleQueue) handle(msg Message, cb Handler) (err error) {
 	return nil
 }
 
-func (q *SimpleQueue) Recover(msg Message) error {
+func (q *SimpleQueue) Recover(ctx context.Context, msg Message) error {
 	// log.Debug("SafeQueue recover", "data", fmt.Sprintf("0x%x", b))
 	metrics.MetricQueueRecoverTotal.WithLabelValues(q.Name()).Inc()
 
 	if queue, ok := q.queue.(RecoverableQueue); ok {
-		err := queue.Recover(msg)
+		err := queue.Recover(ctx, msg)
 		if err != nil {
 			metrics.MetricQueueRecoverErrorTotal.WithLabelValues(q.Name()).Inc()
 			return err
@@ -180,12 +181,12 @@ func (q *SimpleQueue) IsRecoverable() bool {
 	return ok
 }
 
-func (q *SimpleQueue) Purge() error {
+func (q *SimpleQueue) Purge(ctx context.Context) error {
 	metrics.MetricQueuePurgeTotal.WithLabelValues(q.Name()).Inc()
 
 	purgeable, ok := q.queue.(Purgeable)
 	if ok {
-		err := purgeable.Purge()
+		err := purgeable.Purge(ctx)
 		if err != nil {
 			metrics.MetricQueuePurgeErrorTotal.WithLabelValues(q.Name()).Inc()
 			return err

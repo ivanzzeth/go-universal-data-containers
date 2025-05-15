@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
@@ -21,7 +20,7 @@ type StorageFactory interface {
 
 type Storage interface {
 	// Please use locker to protect the storage in concurrent
-	sync.Locker
+	locker.SyncLocker
 
 	StorageSnapshot
 
@@ -53,7 +52,7 @@ type StorageSnapshot interface {
 	ClearSnapshots() (err error)
 }
 
-func GetStorageLockerByName(lockerGenerator locker.SyncLockerGenerator, storageName string) (sync.Locker, error) {
+func GetStorageLockerByName(lockerGenerator locker.SyncLockerGenerator, storageName string) (locker.SyncLocker, error) {
 	locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", storageName))
 	return locker, err
 }

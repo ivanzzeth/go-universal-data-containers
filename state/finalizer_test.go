@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -141,12 +142,12 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 
 			err = user1Container.Save()
 			if err != nil {
-				user1.Unlock()
+				user1.Unlock(context.Background())
 
 				fmt.Printf("Save failed: %v\n", err)
 				continue
 			}
-			user1.Unlock()
+			user1.Unlock(context.Background())
 
 			// user1Finalized, err := user1ContainerForPersist.GetFromPersist()
 			// if err != nil {

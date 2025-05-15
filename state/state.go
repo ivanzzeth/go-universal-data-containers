@@ -3,7 +3,6 @@ package state
 import (
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
@@ -23,8 +22,8 @@ var (
 // then we can use it as a state id.
 // It's very simular to multiple primary keys in SQL databases.
 type State interface {
-	sync.Locker
-	GetLocker() sync.Locker
+	locker.SyncLocker
+	GetLocker() locker.SyncLocker
 	GetLockerGenerator() locker.SyncLockerGenerator
 
 	StateName() string
@@ -56,7 +55,7 @@ func GetStateIDByComponents(idMarshaler IDMarshaler, stateIDComponents StateIDCo
 	return
 }
 
-func GetStateLockerByName(lockerGenerator locker.SyncLockerGenerator, stateName, stateID string) (sync.Locker, error) {
+func GetStateLockerByName(lockerGenerator locker.SyncLockerGenerator, stateName, stateID string) (locker.SyncLocker, error) {
 	locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("state-locker-%v-id-%v", stateName, stateID))
 	// fmt.Printf("GetStateLockerByName, key: %v, generator: %p, generator type: %T, locker: %p\n", fmt.Sprintf("state-locker-%v-id-%v", stateName, stateID),
 	// 	lockerGenerator, lockerGenerator, locker)

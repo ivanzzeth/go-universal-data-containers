@@ -70,7 +70,7 @@ type RedisStorage struct {
 	redisClient *redis.Client
 	registry    Registry
 
-	locker sync.Locker
+	locker locker.SyncLocker
 	StorageSnapshot
 
 	partition string
@@ -114,12 +114,12 @@ func (s *RedisStorage) StorageName() string {
 	return s.partition
 }
 
-func (s *RedisStorage) Lock() {
-	s.locker.Lock()
+func (s *RedisStorage) Lock(ctx context.Context) error {
+	return s.locker.Lock(ctx)
 }
 
-func (s *RedisStorage) Unlock() {
-	s.locker.Unlock()
+func (s *RedisStorage) Unlock(ctx context.Context) error {
+	return s.locker.Unlock(ctx)
 }
 
 func (s *RedisStorage) getStateKey(stateName string) string {

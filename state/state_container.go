@@ -1,10 +1,12 @@
 package state
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
-	"sync"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 // StateContainer is helpful to work with state.
@@ -33,7 +35,7 @@ func (s *StateContainer[T]) StateID() (stateID string, err error) {
 	return GetStateID(s.state)
 }
 
-func (s *StateContainer[T]) GetLocker() (sync.Locker, error) {
+func (s *StateContainer[T]) GetLocker() (locker.SyncLocker, error) {
 	// fmt.Printf("GetLocker started\n")
 	stateID, err := s.StateID()
 	if err != nil {
@@ -61,7 +63,7 @@ func (s *StateContainer[T]) GetAndLock() (T, error) {
 	}
 
 	// Lock first
-	locker.Lock()
+	locker.Lock(context.TODO())
 
 	// then get the value
 	return s.Get()

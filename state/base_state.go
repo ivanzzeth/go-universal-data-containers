@@ -1,9 +1,9 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"reflect"
-	"sync"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
@@ -16,7 +16,7 @@ var (
 type BaseState struct {
 	stateName       string
 	idMarshaler     IDMarshaler
-	locker          sync.Locker
+	locker          locker.SyncLocker
 	lockerGenerator locker.SyncLockerGenerator
 }
 
@@ -48,7 +48,7 @@ func (s *BaseState) StateIDComponents() StateIDComponents {
 	panic(common.ErrNotImplemented)
 }
 
-func (s *BaseState) GetLocker() sync.Locker {
+func (s *BaseState) GetLocker() locker.SyncLocker {
 	return s.locker
 }
 
@@ -90,10 +90,10 @@ func (s *BaseState) GetLockerGenerator() locker.SyncLockerGenerator {
 	return s.lockerGenerator
 }
 
-func (s *BaseState) Lock() {
-	s.locker.Lock()
+func (s *BaseState) Lock(ctx context.Context) error {
+	return s.locker.Lock(ctx)
 }
 
-func (s *BaseState) Unlock() {
-	s.locker.Unlock()
+func (s *BaseState) Unlock(ctx context.Context) error {
+	return s.locker.Unlock(ctx)
 }

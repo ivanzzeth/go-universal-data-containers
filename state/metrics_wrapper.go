@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/metrics"
@@ -29,12 +30,12 @@ func (s StorageWithMetrics) StorageName() string {
 	return s.storage.StorageName()
 }
 
-func (s StorageWithMetrics) Lock() {
-	s.storage.Lock()
+func (s StorageWithMetrics) Lock(ctx context.Context) error {
+	return s.storage.Lock(ctx)
 }
 
-func (s StorageWithMetrics) Unlock() {
-	s.storage.Unlock()
+func (s StorageWithMetrics) Unlock(ctx context.Context) error {
+	return s.storage.Unlock(ctx)
 }
 
 func (s StorageWithMetrics) LoadState(name string, id string) (state State, err error) {

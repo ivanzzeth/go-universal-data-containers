@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -156,7 +157,7 @@ func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) (err erro
 	if err != nil {
 		return
 	}
-	defer finalizeState.Unlock()
+	defer finalizeState.Unlock(context.TODO())
 
 	// Double check lastTime
 	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
@@ -205,7 +206,7 @@ func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() (err error) {
 	if err != nil {
 		return
 	}
-	defer finalizeState.Unlock()
+	defer finalizeState.Unlock(context.TODO())
 
 	// Double check lastTime
 	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {

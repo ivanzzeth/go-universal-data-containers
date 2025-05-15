@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"math/rand"
 	"sync"
 	"time"
@@ -92,14 +93,18 @@ func (q *MemoryQueue) Name() string {
 	return q.name
 }
 
-func (q *MemoryQueue) Enqueue(data []byte) error {
+func (q *MemoryQueue) Enqueue(ctx context.Context, data []byte) error {
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
 	}
 
-	q.GetLocker().Lock()
-	defer q.GetLocker().Unlock()
+	err = q.GetLocker().Lock(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer q.GetLocker().Unlock(ctx)
 
 	if q.MaxSize() > 0 && len(q.queue) >= q.MaxSize() {
 		return ErrQueueFull
@@ -114,9 +119,14 @@ func (q *MemoryQueue) Enqueue(data []byte) error {
 	return nil
 }
 
-func (q *MemoryQueue) Dequeue() (Message, error) {
-	q.GetLocker().Lock()
-	defer q.GetLocker().Unlock()
+func (q *MemoryQueue) Dequeue(ctx context.Context) (Message, error) {
+	err := q.GetLocker().Lock(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	defer q.GetLocker().Unlock(ctx)
+
 	if len(q.queue) > 0 {
 		packedData := q.queue[0]
 		q.queue = q.queue[1:]
@@ -156,7 +166,7 @@ Loop:
 			index := rand.Intn(len(q.callbacks))
 			cb := q.callbacks[index]
 
-			msg, err := q.Dequeue()
+			msg, err := q.Dequeue(context.TODO())
 			if err != nil {
 				time.Sleep(q.config.PollInterval)
 				continue Loop
@@ -169,7 +179,7 @@ Loop:
 	}
 }
 
-func (q *MemoryQueue) Recover(msg Message) error {
+func (q *MemoryQueue) Recover(ctx context.Context, msg Message) error {
 	if msg.RetryCount() > q.config.MaxHandleFailures {
 		// Just ignore it for now
 		return nil
@@ -183,15 +193,24 @@ func (q *MemoryQueue) Recover(msg Message) error {
 		return err
 	}
 
-	q.GetLocker().Lock()
-	defer q.GetLocker().Unlock()
+	err = q.GetLocker().Lock(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer q.GetLocker().Unlock(ctx)
+
 	q.queue = append([][]byte{packedData}, q.queue...)
 	return nil
 }
 
-func (q *MemoryQueue) Purge() error {
-	q.GetLocker().Lock()
-	defer q.GetLocker().Unlock()
+func (q *MemoryQueue) Purge(ctx context.Context) error {
+	err := q.GetLocker().Lock(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer q.GetLocker().Unlock(ctx)
 	q.queue = nil
 	return nil
 }
