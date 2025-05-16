@@ -223,7 +223,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 	for i, tt := range testcases {
 		t.Run(fmt.Sprintf("#case%d", i), func(t *testing.T) {
 			var mutex sync.Mutex
-			allData := make(map[string]bool)
+			allData := make(map[string]int)
 			isSubscribeErrReturned := make(map[string]bool)
 
 			q, err := f.GetOrCreate(fmt.Sprintf("test-%d", i))
@@ -254,7 +254,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 				}
 
 				t.Logf("Store data: %v", data.Data)
-				allData[data.Data] = true
+				allData[data.Data] += 1
 				return nil
 			})
 
@@ -273,8 +273,11 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 			time.Sleep(2 * time.Second)
 
 			for _, d := range tt.data {
-				if !allData[d.Data] {
+				if allData[d.Data] < 1 {
 					t.Fatalf("expected %v to be included, allData=%v", d.Data, allData)
+				}
+				if allData[d.Data] > 1 {
+					t.Fatalf("expected %v to be included once, count=%v", d.Data, allData[d.Data])
 				}
 			}
 		})

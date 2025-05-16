@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/adjust/rmq/v5"
 	"github.com/redis/go-redis/v9"
@@ -102,42 +101,42 @@ func NewRedisQueue[T any](conn rmq.Connection, name string, defaultMsg Message[T
 		return nil, err
 	}
 
-	go func() {
-		for {
-			time.Sleep(options.PollInterval)
-			select {
-			case <-baseQueue.exitChannel:
-				return
-			default:
-			}
-			unackedReturned, err := queue.ReturnUnacked(10)
-			if err != nil {
-				// TODO: logging
-				fmt.Printf("redis queue got err: %v\n", err)
-				continue
-			}
+	// go func() {
+	// 	for {
+	// 		time.Sleep(options.PollInterval)
+	// 		select {
+	// 		case <-baseQueue.exitChannel:
+	// 			return
+	// 		default:
+	// 		}
+	// unackedReturned, err := queue.ReturnUnacked(10)
+	// if err != nil {
+	// TODO: logging
+	// 	fmt.Printf("redis queue got err: %v\n", err)
+	// 	continue
+	// }
 
-			if unackedReturned > 0 {
-				// TODO: logging
-				// fmt.Printf("redis queue returned %d unacked messages\n", unackedReturned)
-			}
+	// if unackedReturned > 0 {
+	// TODO: logging
+	// fmt.Printf("redis queue returned %d unacked messages\n", unackedReturned)
+	// }
 
-			// rejectedReturned, err := queue.ReturnRejected(10)
-			// if err != nil {
-			// 	// TODO: logging
-			// 	if !errors.Is(err, rmq.ErrorNotFound) {
-			// 		// fmt.Printf("redis queue got err: %v\n", err)
+	// rejectedReturned, err := queue.ReturnRejected(10)
+	// if err != nil {
+	// 	// TODO: logging
+	// 	if !errors.Is(err, rmq.ErrorNotFound) {
+	// 		// fmt.Printf("redis queue got err: %v\n", err)
 
-			// 		continue
-			// 	}
-			// }
+	// 		continue
+	// 	}
+	// }
 
-			// if rejectedReturned > 0 {
-			// 	// TODO: logging
-			// 	// fmt.Printf("redis queue returned %d rejected messages\n", rejectedReturned)
-			// }
-		}
-	}()
+	// if rejectedReturned > 0 {
+	// 	// TODO: logging
+	// 	// fmt.Printf("redis queue returned %d rejected messages\n", rejectedReturned)
+	// }
+	// }
+	// }()
 
 	return &RedisQueue[T]{
 		BaseQueue: baseQueue,
