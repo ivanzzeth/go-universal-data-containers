@@ -8,6 +8,28 @@ import (
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
+var (
+	stateContainerMemoryFactory          StorageFactory  = NewMemoryStorageFactory(GetDefaultRegistry(), locker.GetDefaultSyncLockerGenerator(), nil)
+	stateContainerMemorySnapshot         StorageSnapshot = NewSimpleStorageSnapshot(GetDefaultRegistry(), stateContainerMemoryFactory, locker.GetDefaultSyncLockerGenerator(), "state-container-memory-snapshot")
+	stateContainerMemoryCache            Storage
+	stateContainerMemoryCacheEnabled     bool
+	ErrStateContainerMemoryCacheDisabled = errors.New("state container memory cache is disabled")
+)
+
+func init() {
+	stateContainerMemoryCacheEnabled = true
+	stateContainerMemoryCache, _ = NewMemoryStorage(locker.GetDefaultSyncLockerGenerator(), GetDefaultRegistry(), stateContainerMemorySnapshot, "state-container-memory-cache")
+}
+
+func SetStateContainerMemoryCacheEnabled(enabled bool) {
+	stateContainerMemoryCacheEnabled = enabled
+}
+
+// If you're not using DefaultRegistry, you need to set it manually
+func SetStateContainerMemoryCache(storage Storage) {
+	stateContainerMemoryCache = storage
+}
+
 // StateContainer is helpful to work with state.
 // It's a wrapper for state, that provides some useful methods to
 // simplify work with state no matter what storage you are using.
@@ -94,6 +116,8 @@ lockLoop:
 	return s.Get(ctx)
 }
 
+// Get queries state from cache first, if not found, load from persist.
+// Save the state to memoryCache if applicable.
 func (s *StateContainer[T]) Get(ctx context.Context) (T, error) {
 	if len(s.state.StateIDComponents()) == 0 {
 		return s.nilState(), ErrStateIDComponents
@@ -104,7 +128,44 @@ func (s *StateContainer[T]) Get(ctx context.Context) (T, error) {
 		return s.state, err
 	}
 
+	if stateContainerMemoryCacheEnabled {
+		defer func() {
+			stateContainerMemoryCache.SaveStates(ctx, s.state)
+		}()
+	}
+
 	state, err := s.finalizer.LoadState(ctx, s.state.StateName(), stateID)
+	if err != nil {
+		if !errors.Is(err, ErrStateNotFound) {
+			return s.nilState(), err
+		}
+
+		// Not found, then using initial state
+		return s.state, nil
+	}
+
+	s.state = state.(T)
+
+	return s.state, nil
+}
+
+// It's useful to get state from memory cache
+// if no need to get latest state
+func (s *StateContainer[T]) GetFromMemory(ctx context.Context) (T, error) {
+	if !stateContainerMemoryCacheEnabled {
+		return s.nilState(), ErrStateContainerMemoryCacheDisabled
+	}
+
+	if len(s.state.StateIDComponents()) == 0 {
+		return s.nilState(), ErrStateIDComponents
+	}
+
+	stateID, err := GetStateID(s.state)
+	if err != nil {
+		return s.state, err
+	}
+
+	state, err := stateContainerMemoryCache.LoadState(ctx, s.state.StateName(), stateID)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
 			return s.nilState(), err

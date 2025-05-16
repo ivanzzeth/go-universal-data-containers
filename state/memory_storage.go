@@ -89,8 +89,11 @@ func NewMemoryStorage(lockerGenerator locker.SyncLockerGenerator, registry Regis
 		States:      make(map[string]map[string]State),
 	}
 
-	snapshot.SetStorageForSnapshot(s)
-	s.StorageSnapshot = snapshot
+	if snapshot != nil {
+		snapshot.SetStorageForSnapshot(s)
+		s.StorageSnapshot = snapshot
+	}
+
 	return s, nil
 }
 

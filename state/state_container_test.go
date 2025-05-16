@@ -13,7 +13,7 @@ import (
 )
 
 func TestMemoryFinalizerStateContainer(t *testing.T) {
-	registry := NewSimpleRegistry()
+	registry := GetDefaultRegistry()
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	// fmt.Printf("TestFinalizerStateContainer: lockerGenerator:%p\n", lockerGenerator)
 
@@ -173,6 +173,13 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 					err := user2.Unlock(context.Background())
 					fmt.Printf("goroutine: %d, released %v locker, err: %v\n", i, "user2 "+user2Id, err)
 				}()
+
+				user2Memory, err := user2Container.GetFromMemory(context.Background())
+				if err != nil {
+					errChan <- err
+					return
+				}
+				assert.Equal(t, user2.Age, user2Memory.Age, "state from memory should be equal to state from cache after GetAndLock")
 
 				fmt.Printf("goroutine: %d, user3 %v GetAndLock\n", i, user3Id)
 
