@@ -166,6 +166,7 @@ func (s *RedisStorage) LoadAllStates(ctx context.Context) ([]State, error) {
 	}
 
 	var states []State
+	var statesLock sync.Mutex
 
 	var wg sync.WaitGroup
 	errsChan := make(chan error, len(names))
@@ -196,7 +197,9 @@ func (s *RedisStorage) LoadAllStates(ctx context.Context) ([]State, error) {
 					return
 				}
 
+				statesLock.Lock()
 				states = append(states, state)
+				statesLock.Unlock()
 			}
 		}()
 	}
