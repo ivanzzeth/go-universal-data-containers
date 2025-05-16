@@ -16,12 +16,12 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	})
 
 	t.Run("LoadState if registered", func(t *testing.T) {
-		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 		if err != nil {
 			t.Fatal(err)
@@ -32,12 +32,12 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	})
 
 	t.Run("Write once and clear", func(t *testing.T) {
-		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 		if err != nil {
 			t.Fatal(err)
@@ -108,12 +108,12 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	})
 
 	t.Run("Write, clear, and write", func(t *testing.T) {
-		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 		if err != nil {
 			t.Fatal(err)
@@ -188,12 +188,12 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	var snapshot2 string
 
 	t.Run("SnapshotStates", func(t *testing.T) {
-		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+		u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 		u1.Age = 1
 		u1.Height = 1
 
@@ -202,7 +202,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			t.Fatal(err)
 		}
 
-		u1ID, err := u1.GetIDMarshaler().MarshalStateID("user1", "server")
+		u1ID, err := u1.GetIDMarshaler().MarshalStateID("partition1", "user1", "server")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -282,8 +282,8 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	})
 
 	t.Run("Multiple states", func(t *testing.T) {
-		user2 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user2", "server")
-		user3 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user3", "server2")
+		user2 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user2", "server")
+		user3 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user3", "server2")
 
 		user2.Height = 120
 
@@ -332,7 +332,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			t.Fatal(err)
 		}
 
-		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -344,7 +344,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 			}
 		}
 
-		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 		stateID, err := GetStateID(user1)
 		if err != nil {
 			t.Fatal(err)
@@ -383,12 +383,12 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 	})
 
 	t.Run("Concurrent", func(t *testing.T) {
-		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+		err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 		if err != nil {
 			t.Fatal(err)
 		}
 
-		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+		user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 		stateID, err := user1.GetIDMarshaler().MarshalStateID(user1.StateIDComponents()...)
 		if err != nil {
 			t.Fatal(err)
@@ -465,7 +465,7 @@ func SpecTestStorage(t *testing.T, registry Registry, storage Storage) {
 func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 	b.ReportAllocs()
 
-	err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -479,7 +479,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 		b.ResetTimer()
 		var table sync.Map
 		for i := 0; i < b.N; i++ {
-			u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+			u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 			u1.Age = 1
 			u1.Height = 1
 			stateID, err := u1.GetIDMarshaler().MarshalStateID(u1.StateIDComponents()...)
@@ -495,7 +495,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
-			u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+			u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 			u1.Age = 1
 			u1.Height = 1
 
@@ -512,7 +512,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 	}
 
 	b.Run("Test single load", func(b *testing.B) {
-		u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+		u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 		u1.Age = 1
 		u1.Height = 1
 
@@ -544,7 +544,7 @@ func SpecBenchmarkStorage(b *testing.B, registry Registry, storage Storage) {
 		users := []State{}
 		// for i := 0; i < 10; i++ {
 		for i := 0; i < 10_000; i++ {
-			u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "user1", "server")
+			u1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 			u1.Age = 1
 			u1.Height = 1
 

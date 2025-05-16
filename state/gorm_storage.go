@@ -127,7 +127,7 @@ func MustNewStateManagement(lockerGenerator locker.SyncLockerGenerator, stateNam
 }
 
 func (u *StateManagement) StateIDComponents() StateIDComponents {
-	return []any{&u.stateName, &u.StateID, &u.Partition}
+	return []any{&u.Partition, &u.stateName, &u.StateID}
 }
 
 func NewGORMStorage(lockerGenerator locker.SyncLockerGenerator, db *gorm.DB, registry Registry, snapshot StorageSnapshot, partition string) (*GORMStorage, error) {

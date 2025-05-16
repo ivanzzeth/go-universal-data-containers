@@ -17,7 +17,7 @@ func TestMemoryFinalizerStateContainer(t *testing.T) {
 	lockerGenerator := locker.NewMemoryLockerGenerator()
 	// fmt.Printf("TestFinalizerStateContainer: lockerGenerator:%p\n", lockerGenerator)
 
-	err := registry.RegisterState(MustNewTestUserModel(lockerGenerator, "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(lockerGenerator, "", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestRedisAndGormFinalizerStateContainer(t *testing.T) {
 	lockerGenerator := locker.NewRedisLockerGenerator(redisPool)
 	// fmt.Printf("TestFinalizerStateContainer: lockerGenerator:%p\n", lockerGenerator)
 
-	err = registry.RegisterState(MustNewTestUserModel(lockerGenerator, "", ""))
+	err = registry.RegisterState(MustNewTestUserModel(lockerGenerator, "", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestRedisAndGormFinalizerStateContainer(t *testing.T) {
 
 func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, finalizer Finalizer, lockerGenerator locker.SyncLockerGenerator) {
 	t.Run("Single instance access states", func(t *testing.T) {
-		user1Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server"))
+		user1Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "partition1", "user1", "server"))
 		// Use SyncLocker to make sure concurrent safety accross
 		// 1. go-routines if the implementation of SyncLocker is like sync.Mutex or
 		// 2. micro-services if the implementation of SyncLocker is distributed locker.
@@ -117,7 +117,7 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 		fmt.Printf("User1 unlocked, locker: %p, generator: %p\n", user1.GetLocker(), user1.GetLockerGenerator())
 
 		// Load user1 from cache
-		newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user1", "server")).Get(context.Background())
+		newUser1, err := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "partition1", "user1", "server")).Get(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,8 +144,8 @@ func SpecTestFinalizerStateContainer(t *testing.T, cache, persist Storage, final
 	})
 
 	t.Run("Multiple instances access states", func(t *testing.T) {
-		user2Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user2", "serve2"))
-		user3Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "user3", "serve2"))
+		user2Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "partition1", "user2", "serve2"))
+		user3Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "partition1", "user3", "serve2"))
 		user2Id, _ := user2Container.StateID()
 		user3Id, _ := user3Container.StateID()
 

@@ -9,7 +9,7 @@ import (
 
 func TestCacheAndPersistFinalizer(t *testing.T) {
 	registry := NewSimpleRegistry()
-	err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+	err := registry.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}

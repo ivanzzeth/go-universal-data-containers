@@ -43,7 +43,7 @@ func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, name, snap
 }
 
 func (u *SnapshotState) StateIDComponents() StateIDComponents {
-	return []any{&u.SnapshotID}
+	return []any{&u.Partition, &u.SnapshotID}
 }
 
 type SimpleStorageSnapshot struct {
@@ -184,7 +184,7 @@ func (s *SimpleStorageSnapshot) getSnapshotIDs(ctx context.Context) (snapshotIDs
 
 	for _, snapshotStateId := range snapshotStateIds {
 		snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, "")
-		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.SnapshotID)
+		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, snapshot.StateIDComponents()...)
 		if err != nil {
 			return
 		}

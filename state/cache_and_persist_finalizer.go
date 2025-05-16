@@ -87,7 +87,7 @@ func MustNewFinalizeState(lockerGenerator locker.SyncLockerGenerator, partition,
 }
 
 func (u *FinalizeState) StateIDComponents() StateIDComponents {
-	return []any{&u.Name}
+	return []any{&u.Partition, &u.Name}
 }
 
 func (s *CacheAndPersistFinalizer) Close() {

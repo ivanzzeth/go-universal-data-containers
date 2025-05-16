@@ -18,9 +18,9 @@ type TestUserModel struct {
 	Height    int
 }
 
-func MustNewTestUserModel(lockerGenerator locker.SyncLockerGenerator, name, server string) *TestUserModel {
+func MustNewTestUserModel(lockerGenerator locker.SyncLockerGenerator, partition, name, server string) *TestUserModel {
 	// You must initialize all id components first
-	m := &TestUserModel{GormModel: GormModel{Partition: "test_user_partition"}, Name: name, Server: server}
+	m := &TestUserModel{GormModel: GormModel{Partition: partition}, Name: name, Server: server}
 
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
@@ -65,5 +65,5 @@ func (u *TestUserModel) Get() error {
 }
 
 func (u *TestUserModel) StateIDComponents() StateIDComponents {
-	return []any{&u.Name, &u.Server}
+	return []any{&u.Partition, &u.Name, &u.Server}
 }

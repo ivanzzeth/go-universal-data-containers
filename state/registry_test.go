@@ -9,14 +9,14 @@ import (
 
 func SpecTestRegistry(t *testing.T, r Registry) {
 	t.Run("RegisterState", func(t *testing.T) {
-		err := r.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", ""))
+		err := r.RegisterState(MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", ""))
 		if err != nil {
 			t.Error(err)
 		}
 	})
 
 	t.Run("New state after registering", func(t *testing.T) {
-		userTemplate := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "", "")
+		userTemplate := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", "")
 		err := r.RegisterState(userTemplate)
 		if err != nil {
 			t.Error(err)
