@@ -171,8 +171,8 @@ func (s *StateContainer[T]) GetFromMemory(ctx context.Context) (T, error) {
 			return s.nilState(), err
 		}
 
-		// Not found, then using initial state
-		return s.state, nil
+		// Not found, then using `Get`
+		return s.Get(ctx)
 	}
 
 	s.state = state.(T)
