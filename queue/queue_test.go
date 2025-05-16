@@ -27,7 +27,6 @@ var (
 
 		ConsumerCount: 3,
 
-		Message:            DefaultOptions.Message,
 		MessageIDGenerator: DefaultOptions.MessageIDGenerator,
 	}
 )
@@ -38,7 +37,7 @@ func init() {
 	// log.SetDefault(logger)
 }
 
-func SpecTestQueueSequencial(t *testing.T, q Queue) {
+func SpecTestQueueSequencial(t *testing.T, q Queue[[]byte]) {
 	maxSize := getMaxSize(q)
 	for i := 0; i < maxSize; i++ {
 		err := q.Enqueue(context.Background(), []byte{byte(i)})
@@ -91,7 +90,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 	}
 }
 
-func SpecTestQueueConcurrent(t *testing.T, q Queue) {
+func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 	maxSize := getMaxSize(q)
 
 	datas := [][]byte{}
@@ -151,7 +150,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 	}
 }
 
-func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory) {
+func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]byte]) {
 	maxFailures := 3
 	q, err := f.GetOrCreate("queue", WithMaxHandleFailures(maxFailures))
 	if err != nil {
@@ -160,7 +159,7 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory) {
 
 	var mutex sync.Mutex
 	currFailures := 0
-	q.Subscribe(func(msg Message) error {
+	q.Subscribe(func(msg Message[[]byte]) error {
 		if currFailures < maxFailures {
 			mutex.Lock()
 			defer mutex.Unlock()
@@ -183,7 +182,7 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory) {
 	}
 }
 
-func SpecTestQueueSubscribe(t *testing.T, f Factory) {
+func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 	type dataAndErr struct {
 		Data string
 		Err  string
@@ -233,7 +232,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 			}
 			defer q.Close()
 
-			q.Subscribe(func(msg Message) error {
+			q.Subscribe(func(msg Message[[]byte]) error {
 				b := msg.Data()
 
 				t.Logf("Subscribe in test: %v", msg)
@@ -282,7 +281,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 	}
 }
 
-func getMaxSize(q Queue) int {
+func getMaxSize(q Queue[[]byte]) int {
 	maxSize := q.MaxSize()
 	if maxSize == UnlimitedSize {
 		maxSize = 10

@@ -3,50 +3,50 @@ package message
 import "encoding/json"
 
 var (
-	_ Message = (*JsonMessage)(nil)
+	_ Message[any] = (*JsonMessage[any])(nil)
 )
 
-type JsonMessage struct {
+type JsonMessage[T any] struct {
 	id       []byte
 	metadata map[string]interface{}
-	data     []byte
+	data     T
 }
 
-type jsonMessageMarshalling struct {
+type jsonMessageMarshalling[T any] struct {
 	ID       []byte                 `json:"id"`
 	Metadata map[string]interface{} `json:"metadata"`
-	Data     []byte                 `json:"data"`
+	Data     T                      `json:"data"` // TODO: use any
 }
 
-func (m *JsonMessage) ID() []byte {
+func (m *JsonMessage[T]) ID() []byte {
 	return m.id
 }
 
-func (m *JsonMessage) SetID(id []byte) error {
+func (m *JsonMessage[T]) SetID(id []byte) error {
 	m.id = id
 	return nil
 }
 
-func (m *JsonMessage) Metadata() map[string]interface{} {
+func (m *JsonMessage[T]) Metadata() map[string]interface{} {
 	return m.metadata
 }
 
-func (m *JsonMessage) SetMetadata(metadata map[string]interface{}) error {
+func (m *JsonMessage[T]) SetMetadata(metadata map[string]interface{}) error {
 	m.metadata = metadata
 	return nil
 }
 
-func (m *JsonMessage) Data() []byte {
+func (m *JsonMessage[T]) Data() T {
 	return m.data
 }
 
-func (m *JsonMessage) SetData(data []byte) error {
+func (m *JsonMessage[T]) SetData(data T) error {
 	m.data = data
 	return nil
 }
 
-func (m *JsonMessage) Pack() ([]byte, error) {
-	j := jsonMessageMarshalling{
+func (m *JsonMessage[T]) Pack() ([]byte, error) {
+	j := jsonMessageMarshalling[T]{
 		ID:       m.id,
 		Metadata: m.metadata,
 		Data:     m.data,
@@ -54,8 +54,8 @@ func (m *JsonMessage) Pack() ([]byte, error) {
 	return json.Marshal(&j)
 }
 
-func (m *JsonMessage) Unpack(b []byte) error {
-	j := jsonMessageMarshalling{}
+func (m *JsonMessage[T]) Unpack(b []byte) error {
+	j := jsonMessageMarshalling[T]{}
 	err := json.Unmarshal(b, &j)
 	if err != nil {
 		return err
@@ -68,7 +68,7 @@ func (m *JsonMessage) Unpack(b []byte) error {
 	return nil
 }
 
-func (m *JsonMessage) String() string {
+func (m *JsonMessage[T]) String() string {
 	packed, _ := m.Pack()
 	return string(packed)
 }

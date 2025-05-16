@@ -11,20 +11,21 @@ import (
 )
 
 var (
-	_ Queue            = (*RedisQueue)(nil)
-	_ RecoverableQueue = (*RedisQueue)(nil)
-	_ Factory          = (*RedisQueueFactory)(nil)
+	_ Queue[any]            = (*RedisQueue[any])(nil)
+	_ RecoverableQueue[any] = (*RedisQueue[any])(nil)
+	_ Factory[any]          = (*RedisQueueFactory[any])(nil)
 )
 
 const (
 	redisQueueTestMsg = "test-message-facgasdffadspoiubsf"
 )
 
-type RedisQueueFactory struct {
-	rmqConn rmq.Connection
+type RedisQueueFactory[T any] struct {
+	rmqConn    rmq.Connection
+	defaultMsg Message[T]
 }
 
-func NewRedisQueueFactory(redisClient redis.Cmdable) *RedisQueueFactory {
+func NewRedisQueueFactory[T any](redisClient redis.Cmdable, defaultMsg Message[T]) *RedisQueueFactory[T] {
 	errChan := make(chan error, 100)
 	go func() {
 		for err := range errChan {
@@ -40,18 +41,33 @@ func NewRedisQueueFactory(redisClient redis.Cmdable) *RedisQueueFactory {
 		panic(fmt.Errorf("failed to open rmq connection: %v", err))
 	}
 
-	return &RedisQueueFactory{
-		rmqConn: rmqConn,
+	return &RedisQueueFactory[T]{
+		rmqConn:    rmqConn,
+		defaultMsg: defaultMsg,
 	}
 }
 
-func (f *RedisQueueFactory) GetOrCreate(name string, options ...Option) (Queue, error) {
+func (f *RedisQueueFactory[T]) GetOrCreate(name string, options ...Option) (Queue[T], error) {
 	ops := DefaultOptions
 	for _, op := range options {
 		op(&ops)
 	}
 
-	q, err := NewRedisQueue(f.rmqConn, name, &ops)
+	q, err := NewRedisQueue(f.rmqConn, name, f.defaultMsg, &ops)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewSimpleQueue[T](q)
+}
+
+func (f *RedisQueueFactory[T]) GetOrCreateSafe(name string, options ...Option) (SafeQueue[T], error) {
+	ops := DefaultOptions
+	for _, op := range options {
+		op(&ops)
+	}
+
+	q, err := NewRedisQueue(f.rmqConn, name, f.defaultMsg, &ops)
 	if err != nil {
 		return nil, err
 	}
@@ -59,27 +75,13 @@ func (f *RedisQueueFactory) GetOrCreate(name string, options ...Option) (Queue, 
 	return NewSimpleQueue(q)
 }
 
-func (f *RedisQueueFactory) GetOrCreateSafe(name string, options ...Option) (SafeQueue, error) {
-	ops := DefaultOptions
-	for _, op := range options {
-		op(&ops)
-	}
-
-	q, err := NewRedisQueue(f.rmqConn, name, &ops)
-	if err != nil {
-		return nil, err
-	}
-
-	return NewSimpleQueue(q)
-}
-
-type RedisQueue struct {
-	*BaseQueue
+type RedisQueue[T any] struct {
+	*BaseQueue[T]
 	q rmq.Queue
 }
 
-func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQueue, error) {
-	baseQueue, err := NewBaseQueue(name, options)
+func NewRedisQueue[T any](conn rmq.Connection, name string, defaultMsg Message[T], options *Config) (*RedisQueue[T], error) {
+	baseQueue, err := NewBaseQueue(name, defaultMsg, options)
 	if err != nil {
 		return nil, err
 	}
@@ -137,17 +139,17 @@ func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQue
 		}
 	}()
 
-	return &RedisQueue{
+	return &RedisQueue[T]{
 		BaseQueue: baseQueue,
 		q:         queue,
 	}, nil
 }
 
-func (q *RedisQueue) MaxSize() int {
+func (q *RedisQueue[T]) MaxSize() int {
 	return UnlimitedSize
 }
 
-func (q *RedisQueue) Enqueue(ctx context.Context, data []byte) error {
+func (q *RedisQueue[T]) Enqueue(ctx context.Context, data T) error {
 	// fmt.Printf("Enqueue %v\n", data)
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
@@ -165,7 +167,7 @@ func (q *RedisQueue) Enqueue(ctx context.Context, data []byte) error {
 	return q.q.PublishBytes(packedData)
 }
 
-func (q *RedisQueue) Dequeue(ctx context.Context) (Message, error) {
+func (q *RedisQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	data, err := q.q.Drain(1)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -204,7 +206,7 @@ func (q *RedisQueue) Dequeue(ctx context.Context) (Message, error) {
 	return msg, nil
 }
 
-func (q *RedisQueue) Subscribe(cb Handler) {
+func (q *RedisQueue[T]) Subscribe(cb Handler[T]) {
 	if q.cb == nil {
 		q.cb = cb
 
@@ -213,7 +215,7 @@ func (q *RedisQueue) Subscribe(cb Handler) {
 			q.q.AddConsumerFunc(consumerName, func(delivery rmq.Delivery) {
 				var (
 					err error
-					msg Message
+					msg Message[T]
 				)
 				data := delivery.Payload()
 				// fmt.Printf("Subscribe %v\n", data)
@@ -250,7 +252,7 @@ func (q *RedisQueue) Subscribe(cb Handler) {
 	}
 }
 
-func (q *RedisQueue) Recover(ctx context.Context, msg Message) error {
+func (q *RedisQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 	if msg.RetryCount() >= q.config.MaxHandleFailures {
 		// Just ignore it for now
 		return nil

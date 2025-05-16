@@ -61,7 +61,7 @@ func TestDistributedTicker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	qf := queue.NewMemoryFactory()
+	qf := queue.NewMemoryFactory(queue.NewJsonMessage(time.Time{}))
 
 	SpecTestTicker(t, func() Ticker {
 		dt, _ := NewDistributedTicker("memory", "test", 100*time.Millisecond, registry, storage, lockerGenerator, qf)
@@ -85,7 +85,7 @@ func TestDistributedTickerWithGorm(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	qf := queue.NewMemoryFactory()
+	qf := queue.NewMemoryFactory(queue.NewJsonMessage(time.Time{}))
 
 	SpecTestTicker(t, func() Ticker {
 		dt, _ := NewDistributedTicker("memory", "test", 100*time.Millisecond, registry, storage, lockerGenerator, qf)

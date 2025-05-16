@@ -11,25 +11,28 @@ import (
 )
 
 var (
-	_ Queue = &BaseQueue{}
+	_ Queue[any] = &BaseQueue[any]{}
 )
 
-type BaseQueue struct {
-	locker      locker.SyncLocker
-	name        string
+type BaseQueue[T any] struct {
+	locker locker.SyncLocker
+	name   string
+
+	defaultMsg  Message[T]
 	config      *Config
-	cb          Handler
+	cb          Handler[T]
 	exitChannel chan int
 }
 
-func NewBaseQueue(name string, options *Config) (*BaseQueue, error) {
+func NewBaseQueue[T any](name string, defaultMsg Message[T], options *Config) (*BaseQueue[T], error) {
 	locker, err := options.LockerGenerator.CreateSyncLocker(fmt.Sprintf("queue-locker-%v", name))
 	if err != nil {
 		return nil, err
 	}
-	q := &BaseQueue{
+	q := &BaseQueue[T]{
 		locker:      locker,
 		name:        name,
+		defaultMsg:  defaultMsg,
 		config:      options,
 		exitChannel: make(chan int),
 	}
@@ -37,43 +40,43 @@ func NewBaseQueue(name string, options *Config) (*BaseQueue, error) {
 	return q, nil
 }
 
-func (q *BaseQueue) Close() {
+func (q *BaseQueue[T]) Close() {
 	close(q.exitChannel)
 }
 
-func (q *BaseQueue) Kind() Kind {
+func (q *BaseQueue[T]) Kind() Kind {
 	return KindFIFO
 }
 
-func (q *BaseQueue) Name() string {
+func (q *BaseQueue[T]) Name() string {
 	return q.name
 }
 
-func (q *BaseQueue) GetLocker() locker.SyncLocker {
+func (q *BaseQueue[T]) GetLocker() locker.SyncLocker {
 	return q.locker
 }
 
-func (q *BaseQueue) MaxSize() int {
+func (q *BaseQueue[T]) MaxSize() int {
 	return q.config.MaxSize
 }
 
-func (q *BaseQueue) MaxHandleFailures() int {
+func (q *BaseQueue[T]) MaxHandleFailures() int {
 	return q.config.MaxHandleFailures
 }
 
-func (q *BaseQueue) Enqueue(ctx context.Context, data []byte) error {
+func (q *BaseQueue[T]) Enqueue(ctx context.Context, data T) error {
 	return common.ErrNotImplemented
 }
 
-func (q *BaseQueue) Dequeue(ctx context.Context) (Message, error) {
+func (q *BaseQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	return nil, common.ErrNotImplemented
 }
 
-func (q *BaseQueue) Subscribe(cb Handler) {
+func (q *BaseQueue[T]) Subscribe(cb Handler[T]) {
 	q.cb = cb
 }
 
-func (q *BaseQueue) ValidateQueueClosed() error {
+func (q *BaseQueue[T]) ValidateQueueClosed() error {
 	select {
 	case <-q.exitChannel:
 		return ErrQueueClosed
@@ -83,7 +86,7 @@ func (q *BaseQueue) ValidateQueueClosed() error {
 	return nil
 }
 
-func (q *BaseQueue) Pack(data []byte) ([]byte, error) {
+func (q *BaseQueue[T]) Pack(data T) ([]byte, error) {
 	msg, err := q.NewMessage(data)
 	if err != nil {
 		return nil, err
@@ -96,8 +99,8 @@ func (q *BaseQueue) Pack(data []byte) ([]byte, error) {
 	return packedData, nil
 }
 
-func (q *BaseQueue) Unpack(data []byte) (Message, error) {
-	msg, err := q.NewMessage(data)
+func (q *BaseQueue[T]) Unpack(data []byte) (Message[T], error) {
+	msg, err := q.NewMessage(reflect.New(reflect.TypeOf(q.defaultMsg.Data())).Elem().Interface().(T))
 	if err != nil {
 		return nil, err
 	}
@@ -110,12 +113,12 @@ func (q *BaseQueue) Unpack(data []byte) (Message, error) {
 	return msg, nil
 }
 
-func (q *BaseQueue) NewMessage(data []byte) (Message, error) {
-	if q.config.Message == nil {
-		panic("message type is not set in config")
+func (q *BaseQueue[T]) NewMessage(data T) (Message[T], error) {
+	if q.defaultMsg == nil {
+		panic("message type is not set")
 	}
 
-	msg := reflect.New(reflect.TypeOf(q.config.Message).Elem()).Interface().(Message)
+	msg := reflect.New(reflect.TypeOf(q.defaultMsg).Elem()).Interface().(Message[T])
 
 	err := msg.SetData(data)
 	if err != nil {

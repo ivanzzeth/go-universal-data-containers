@@ -9,7 +9,7 @@ const (
 	UnlimitedSize = -1
 )
 
-type Handler func(msg Message) error
+type Handler[T any] func(msg Message[T]) error
 
 type Kind uint8
 
@@ -26,18 +26,18 @@ var (
 	ErrQueueRecovered = errors.New("queue recovered")
 )
 
-type Factory interface {
+type Factory[T any] interface {
 	// Create a new queue if name does not exist
 	// If name already exists, return the existing queue
-	GetOrCreate(name string, options ...Option) (Queue, error)
+	GetOrCreate(name string, options ...Option) (Queue[T], error)
 
 	// Same as GetOrCreate but returns SafeQueue
-	GetOrCreateSafe(name string, options ...Option) (SafeQueue, error)
+	GetOrCreateSafe(name string, options ...Option) (SafeQueue[T], error)
 }
 
 // The interface of queue
 // The implementation of queue should be thread-safe
-type Queue interface {
+type Queue[T any] interface {
 	Kind() Kind
 
 	Name() string
@@ -53,35 +53,35 @@ type Queue interface {
 
 	// Push data to end of queue
 	// Failed if queue is full or closed
-	Enqueue(context.Context, []byte) error
+	Enqueue(ctx context.Context, data T) error
 
 	// Pop data from beginning of queue without message confirmation
 	// Failed if queue is empty
 
 	// The implementation MUST set the retryCount of the message to 0 if its retryCount > MaxHandleFailures,
 	// in the case, the message is from DLQ redriving.
-	Dequeue(context.Context) (Message, error)
+	Dequeue(context.Context) (Message[T], error)
 
 	// Subscribe queue with message confirmation.
 	// Once handler returns error, it'll automatically put message back to queue using `Recover` mechanism internally.
-	Subscribe(h Handler)
+	Subscribe(h Handler[T])
 
 	Close()
 }
 
-type RecoverableQueue interface {
-	Queue
+type RecoverableQueue[T any] interface {
+	Queue[T]
 
-	Recoverable
+	Recoverable[T]
 }
 
-type Recoverable interface {
+type Recoverable[T any] interface {
 	// Recover providers the ability to put message back to queue when handler returns error or encounters panic.
 
 	// If the queue supports `visibility window` like AWS SQS, the message will be put back to queue atomically without calling `Recover`.
 	// It's useful if the panic is from outside of the queue handler.
 	// But it's recommended to use `Recover` if the panic is from inside the queue handler for retrying the message fast.
-	Recover(context.Context, Message) error
+	Recover(context.Context, Message[T]) error
 }
 
 type Purgeable interface {
@@ -89,15 +89,15 @@ type Purgeable interface {
 	Purge(context.Context) error
 }
 
-type DLQer interface {
-	DLQ() (DLQ, error)
+type DLQer[T any] interface {
+	DLQ() (DLQ[T], error)
 }
 
-type DLQ interface {
-	Queue
+type DLQ[T any] interface {
+	Queue[T]
 
 	// Push `items` of messages to associated Queue
 	Redrive(ctx context.Context, items int) error
 
-	AssociatedQueue() Queue
+	AssociatedQueue() Queue[T]
 }

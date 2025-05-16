@@ -2,7 +2,7 @@ package message
 
 // Message represents a message that can be sent to a queue, network, etc
 // NOTE: It's not thread-safe
-type Message interface {
+type Message[T any] interface {
 	ID() []byte
 	SetID(id []byte) error
 
@@ -10,8 +10,8 @@ type Message interface {
 	Metadata() map[string]interface{}
 	SetMetadata(metadata map[string]interface{}) error
 
-	Data() []byte
-	SetData(data []byte) error
+	Data() T
+	SetData(data T) error
 
 	// Converts the message into a binary package
 	Pack() ([]byte, error)

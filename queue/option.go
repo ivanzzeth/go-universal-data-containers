@@ -22,8 +22,6 @@ var (
 
 		ConsumerCount: 1,
 
-		Message: &JsonMessage{},
-
 		MessageIDGenerator: message.GenerateRandomID,
 	}
 )
@@ -50,9 +48,6 @@ type Config struct {
 	// If you want to ensure the order of messages, please use FIFO queue and set ConsumerCount to 1
 	ConsumerCount int
 
-	// Specify standard message
-	// Use json message if nil
-	Message            Message
 	MessageIDGenerator message.MessageIDGenerator
 }
 
@@ -83,12 +78,6 @@ func WithMaxRetries(maxRetries int) func(*Config) {
 func WithConsumerCount(consumerCount int) func(*Config) {
 	return func(o *Config) {
 		o.ConsumerCount = consumerCount
-	}
-}
-
-func WithMessage(message Message) func(*Config) {
-	return func(o *Config) {
-		o.Message = message
 	}
 }
 

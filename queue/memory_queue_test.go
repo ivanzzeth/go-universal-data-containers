@@ -3,7 +3,7 @@ package queue
 import "testing"
 
 func TestMemoryQueueSequencial(t *testing.T) {
-	q, err := NewMemoryQueue("", &queueOptions)
+	q, err := NewMemoryQueue("", NewJsonMessage([]byte{}), &queueOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -11,7 +11,7 @@ func TestMemoryQueueSequencial(t *testing.T) {
 }
 
 func TestMemoryQueueConcurrent(t *testing.T) {
-	q, err := NewMemoryQueue("", &queueOptions)
+	q, err := NewMemoryQueue("", NewJsonMessage([]byte{}), &queueOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -19,11 +19,11 @@ func TestMemoryQueueConcurrent(t *testing.T) {
 }
 
 func TestMemoryQueueSubscribeHandleReachedMaxFailures(t *testing.T) {
-	f := NewMemoryFactory()
+	f := NewMemoryFactory(NewJsonMessage([]byte{}))
 	SpecTestQueueSubscribeHandleReachedMaxFailures(t, f)
 }
 
 func TestMemoryQueueSubscribe(t *testing.T) {
-	f := NewMemoryFactory()
+	f := NewMemoryFactory(NewJsonMessage([]byte{}))
 	SpecTestQueueSubscribe(t, f)
 }

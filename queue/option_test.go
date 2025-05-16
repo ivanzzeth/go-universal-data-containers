@@ -8,7 +8,7 @@ import (
 )
 
 func TestOptions(t *testing.T) {
-	f := NewMemoryFactory()
+	f := NewMemoryFactory(NewJsonMessage([]byte{}))
 	q, err := f.GetOrCreate("queue",
 		WithMaxSize(100),
 		WithPollInterval(321*time.Second),
@@ -19,8 +19,8 @@ func TestOptions(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	safeq := q.(*SimpleQueue)
-	instance := safeq.queue.(*MemoryQueue)
+	safeq := q.(*SimpleQueue[[]byte])
+	instance := safeq.queue.(*MemoryQueue[[]byte])
 	assert.Equal(t, 100, instance.config.MaxSize)
 	assert.Equal(t, 321*time.Second, instance.config.PollInterval)
 	assert.Equal(t, 123, instance.config.MaxRetries)

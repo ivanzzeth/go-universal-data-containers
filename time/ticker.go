@@ -25,7 +25,7 @@ type Ticker interface {
 
 type DistributedTicker struct {
 	name string
-	q    queue.Queue
+	q    queue.Queue[time.Time]
 	// locker          SyncLocker
 	lockerGenerator locker.SyncLockerGenerator
 	registry        state.Registry
@@ -38,7 +38,7 @@ type DistributedTicker struct {
 	exitChannel chan struct{}
 }
 
-func NewDistributedTicker(partition, name string, d time.Duration, registry state.Registry, storage state.Storage, lockerGenerator locker.SyncLockerGenerator, qf queue.Factory) (*DistributedTicker, error) {
+func NewDistributedTicker(partition, name string, d time.Duration, registry state.Registry, storage state.Storage, lockerGenerator locker.SyncLockerGenerator, qf queue.Factory[time.Time]) (*DistributedTicker, error) {
 	// locker, err := lockerGenerator.CreateSyncLocker(fmt.Sprintf("ticker-locker-%v", name))
 	// if err != nil {
 	// 	return nil, err
@@ -92,7 +92,7 @@ func (d *DistributedTicker) Tick() <-chan time.Time {
 func (d *DistributedTicker) run() {
 	go func() {
 		// log.Printf("Subscribe to ticker queue, ticker %p, queue: %p\n", d, d.q)
-		d.q.Subscribe(func(msg queue.Message) error {
+		d.q.Subscribe(func(msg queue.Message[time.Time]) error {
 			// log.Printf("Received tick, ticker %p, queue: %p\n", d, d.q)
 			select {
 			case d.tickOut <- time.Now():
@@ -161,9 +161,10 @@ func (d *DistributedTicker) run() {
 
 				// log.Printf("tick6\n")
 
-				tickerState.LastTickTime = time.Now()
+				now := time.Now()
+				tickerState.LastTickTime = now
 
-				err = d.q.Enqueue(context.TODO(), []byte{})
+				err = d.q.Enqueue(context.TODO(), now)
 				if err != nil {
 					return
 				}
