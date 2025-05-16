@@ -5,6 +5,18 @@ import (
 	"time"
 )
 
+var (
+	defaultFinalizer Finalizer
+)
+
+func SetDefaultFinalizer(finalizer Finalizer) {
+	defaultFinalizer = finalizer
+}
+
+func GetDefaultFinalizer() Finalizer {
+	return defaultFinalizer
+}
+
 // Finalize uses two types of storage: cache and persist
 // read/write from/to cache first and then
 // write all cached states into persist storage.

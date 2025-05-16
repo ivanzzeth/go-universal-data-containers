@@ -150,7 +150,7 @@ func (s *CacheAndPersistFinalizer) ClearStates(ctx context.Context, states ...St
 }
 
 func (s *CacheAndPersistFinalizer) FinalizeSnapshot(ctx context.Context, snapshotID string) (err error) {
-	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
+	stateContainer := NewStateContainerWithFinalizer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
 
 	finalizeState, err := stateContainer.GetAndLock(ctx)
 
@@ -199,7 +199,7 @@ func (s *CacheAndPersistFinalizer) finalizeSnapshot(ctx context.Context, snapsho
 }
 
 func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates(ctx context.Context) (err error) {
-	stateContainer := NewStateContainer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
+	stateContainer := NewStateContainerWithFinalizer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
 
 	finalizeState, err := stateContainer.GetAndLock(ctx)
 

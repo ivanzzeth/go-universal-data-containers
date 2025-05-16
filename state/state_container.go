@@ -18,7 +18,15 @@ type StateContainer[T State] struct {
 	state     T
 }
 
-func NewStateContainer[T State](finalizer Finalizer, state T) *StateContainer[T] {
+func NewStateContainer[T State](state T) *StateContainer[T] {
+	finalizer := GetDefaultFinalizer()
+	return &StateContainer[T]{
+		finalizer: finalizer,
+		state:     state,
+	}
+}
+
+func NewStateContainerWithFinalizer[T State](finalizer Finalizer, state T) *StateContainer[T] {
 	return &StateContainer[T]{
 		finalizer: finalizer,
 		state:     state,

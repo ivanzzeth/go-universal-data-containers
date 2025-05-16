@@ -128,8 +128,8 @@ func SpecTestFinalizer(t *testing.T, lockerGenerator locker.SyncLockerGenerator,
 			finalizers[i].EnableAutoFinalizeAllCachedStates(true)
 		}
 
-		user1Container := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "", "user1", "server"))
-		user1ContainerForPersist := NewStateContainer(finalizer, MustNewTestUserModel(lockerGenerator, "", "user1", "server"))
+		user1Container := NewStateContainerWithFinalizer(finalizer, MustNewTestUserModel(lockerGenerator, "", "user1", "server"))
+		user1ContainerForPersist := NewStateContainerWithFinalizer(finalizer, MustNewTestUserModel(lockerGenerator, "", "user1", "server"))
 
 		for i := 0; i < 10; i++ {
 			user1, err := user1Container.GetAndLock(context.Background())
