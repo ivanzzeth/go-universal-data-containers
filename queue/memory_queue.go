@@ -2,7 +2,6 @@ package queue
 
 import (
 	"context"
-	"math/rand"
 	"sync"
 	"time"
 )
@@ -59,8 +58,7 @@ func (f *MemoryFactory[T]) GetOrCreateSafe(name string, options ...Option) (Safe
 
 type MemoryQueue[T any] struct {
 	*BaseQueue[T]
-	queue     [][]byte
-	callbacks []Handler[T]
+	queue [][]byte
 }
 
 func NewMemoryQueue[T any](name string, defaultMsg Message[T], options ...Option) (*MemoryQueue[T], error) {
@@ -143,10 +141,6 @@ func (q *MemoryQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	return nil, ErrQueueEmpty
 }
 
-func (q *MemoryQueue[T]) Subscribe(cb Handler[T]) {
-	q.callbacks = append(q.callbacks, cb)
-}
-
 func (q *MemoryQueue[T]) run() {
 Loop:
 	for {
@@ -159,17 +153,13 @@ Loop:
 				continue
 			}
 
-			// Randomly pick up one.
-			index := rand.Intn(len(q.callbacks))
-			cb := q.callbacks[index]
-
 			msg, err := q.Dequeue(context.TODO())
 			if err != nil {
 				time.Sleep(q.config.PollInterval)
 				continue Loop
 			}
 
-			cb(msg)
+			q.TriggerCallbacks(msg)
 
 			time.Sleep(q.config.PollInterval)
 		}

@@ -3,7 +3,6 @@ module github.com/ivanzzeth/go-universal-data-containers
 go 1.22.0
 
 require (
-	github.com/adjust/rmq/v5 v5.2.0
 	github.com/alicebob/miniredis/v2 v2.34.0
 	github.com/go-redsync/redsync/v4 v4.13.0
 	github.com/google/uuid v1.6.0

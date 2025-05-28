@@ -18,9 +18,11 @@ type BaseQueue[T any] struct {
 	locker locker.SyncLocker
 	name   string
 
-	defaultMsg  Message[T]
-	config      *Config
-	cb          Handler[T]
+	defaultMsg Message[T]
+	config     *Config
+	callbacks  []Handler[T]
+
+	msgBuffer   chan struct{}
 	exitChannel chan int
 }
 
@@ -39,6 +41,7 @@ func NewBaseQueue[T any](name string, defaultMsg Message[T], options ...Option) 
 		name:        name,
 		defaultMsg:  defaultMsg,
 		config:      &ops,
+		msgBuffer:   make(chan struct{}, ops.ConsumerCount),
 		exitChannel: make(chan int),
 	}
 
@@ -82,7 +85,19 @@ func (q *BaseQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 }
 
 func (q *BaseQueue[T]) Subscribe(cb Handler[T]) {
-	q.cb = cb
+	q.callbacks = append(q.callbacks, cb)
+}
+
+func (q *BaseQueue[T]) TriggerCallbacks(msg Message[T]) {
+	q.msgBuffer <- struct{}{}
+
+	go func() {
+		for _, cb := range q.callbacks {
+			cb(msg)
+		}
+
+		<-q.msgBuffer
+	}()
 }
 
 func (q *BaseQueue[T]) ValidateQueueClosed() error {
@@ -93,6 +108,10 @@ func (q *BaseQueue[T]) ValidateQueueClosed() error {
 	}
 
 	return nil
+}
+
+func (q *BaseQueue[T]) GetQueueKey() string {
+	return fmt.Sprintf("%v::%v", Namespace, q.name)
 }
 
 func (q *BaseQueue[T]) Pack(data T) ([]byte, error) {

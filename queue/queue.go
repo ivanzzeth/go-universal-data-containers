@@ -7,6 +7,7 @@ import (
 
 const (
 	UnlimitedSize = -1
+	Namespace     = "container::queue::"
 )
 
 type Handler[T any] func(msg Message[T]) error
