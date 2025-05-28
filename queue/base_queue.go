@@ -24,8 +24,13 @@ type BaseQueue[T any] struct {
 	exitChannel chan int
 }
 
-func NewBaseQueue[T any](name string, defaultMsg Message[T], options *Config) (*BaseQueue[T], error) {
-	locker, err := options.LockerGenerator.CreateSyncLocker(fmt.Sprintf("queue-locker-%v", name))
+func NewBaseQueue[T any](name string, defaultMsg Message[T], options ...Option) (*BaseQueue[T], error) {
+	ops := DefaultOptions
+	for _, op := range options {
+		op(&ops)
+	}
+
+	locker, err := ops.LockerGenerator.CreateSyncLocker(fmt.Sprintf("queue-locker-%v", name))
 	if err != nil {
 		return nil, err
 	}
@@ -33,7 +38,7 @@ func NewBaseQueue[T any](name string, defaultMsg Message[T], options *Config) (*
 		locker:      locker,
 		name:        name,
 		defaultMsg:  defaultMsg,
-		config:      options,
+		config:      &ops,
 		exitChannel: make(chan int),
 	}
 
@@ -50,6 +55,10 @@ func (q *BaseQueue[T]) Kind() Kind {
 
 func (q *BaseQueue[T]) Name() string {
 	return q.name
+}
+
+func (q *BaseQueue[T]) GetConfig() *Config {
+	return q.config
 }
 
 func (q *BaseQueue[T]) GetLocker() locker.SyncLocker {

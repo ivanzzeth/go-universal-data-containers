@@ -47,12 +47,7 @@ func NewRedisQueueFactory[T any](redisClient redis.Cmdable, defaultMsg Message[T
 }
 
 func (f *RedisQueueFactory[T]) GetOrCreate(name string, options ...Option) (Queue[T], error) {
-	ops := DefaultOptions
-	for _, op := range options {
-		op(&ops)
-	}
-
-	q, err := NewRedisQueue(f.rmqConn, name, f.defaultMsg, &ops)
+	q, err := NewRedisQueue(f.rmqConn, name, f.defaultMsg, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -61,12 +56,7 @@ func (f *RedisQueueFactory[T]) GetOrCreate(name string, options ...Option) (Queu
 }
 
 func (f *RedisQueueFactory[T]) GetOrCreateSafe(name string, options ...Option) (SafeQueue[T], error) {
-	ops := DefaultOptions
-	for _, op := range options {
-		op(&ops)
-	}
-
-	q, err := NewRedisQueue(f.rmqConn, name, f.defaultMsg, &ops)
+	q, err := NewRedisQueue(f.rmqConn, name, f.defaultMsg, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +69,8 @@ type RedisQueue[T any] struct {
 	q rmq.Queue
 }
 
-func NewRedisQueue[T any](conn rmq.Connection, name string, defaultMsg Message[T], options *Config) (*RedisQueue[T], error) {
-	baseQueue, err := NewBaseQueue(name, defaultMsg, options)
+func NewRedisQueue[T any](conn rmq.Connection, name string, defaultMsg Message[T], options ...Option) (*RedisQueue[T], error) {
+	baseQueue, err := NewBaseQueue(name, defaultMsg, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +80,7 @@ func NewRedisQueue[T any](conn rmq.Connection, name string, defaultMsg Message[T
 		return nil, err
 	}
 
-	err = queue.StartConsuming(1, options.PollInterval)
+	err = queue.StartConsuming(1, baseQueue.config.PollInterval)
 	if err != nil {
 		return nil, err
 	}

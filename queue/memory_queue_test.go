@@ -3,7 +3,7 @@ package queue
 import "testing"
 
 func TestMemoryQueueSequencial(t *testing.T) {
-	q, err := NewMemoryQueue("", NewJsonMessage([]byte{}), &queueOptions)
+	q, err := NewMemoryQueue("", NewJsonMessage([]byte{}), queueOptions)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -11,7 +11,7 @@ func TestMemoryQueueSequencial(t *testing.T) {
 }
 
 func TestMemoryQueueConcurrent(t *testing.T) {
-	q, err := NewMemoryQueue("", NewJsonMessage([]byte{}), &queueOptions)
+	q, err := NewMemoryQueue("", NewJsonMessage([]byte{}), queueOptions)
 	if err != nil {
 		t.Fatal(err)
 	}

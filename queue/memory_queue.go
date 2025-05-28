@@ -39,15 +39,10 @@ func (f *MemoryFactory[T]) GetOrCreate(name string, options ...Option) (Queue[T]
 }
 
 func (f *MemoryFactory[T]) GetOrCreateSafe(name string, options ...Option) (SafeQueue[T], error) {
-	ops := DefaultOptions
-	for _, op := range options {
-		op(&ops)
-	}
-
 	f.m.Lock()
 	defer f.m.Unlock()
 	if _, ok := f.table[name]; !ok {
-		mq, err := NewMemoryQueue[T](name, f.defaultMsg, &ops)
+		mq, err := NewMemoryQueue[T](name, f.defaultMsg, options...)
 		if err != nil {
 			return nil, err
 		}
@@ -68,8 +63,8 @@ type MemoryQueue[T any] struct {
 	callbacks []Handler[T]
 }
 
-func NewMemoryQueue[T any](name string, defaultMsg Message[T], options *Config) (*MemoryQueue[T], error) {
-	baseQueue, err := NewBaseQueue(name, defaultMsg, options)
+func NewMemoryQueue[T any](name string, defaultMsg Message[T], options ...Option) (*MemoryQueue[T], error) {
+	baseQueue, err := NewBaseQueue(name, defaultMsg, options...)
 	if err != nil {
 		return nil, err
 	}

@@ -16,18 +16,17 @@ import (
 )
 
 var (
-	queueOptions = Config{
-		LockerGenerator: locker.NewMemoryLockerGenerator(),
+	queueOptions = func(c *Config) {
+		c.LockerGenerator = locker.NewMemoryLockerGenerator()
+		c.MaxSize = 255
+		c.MaxHandleFailures = 3
 
-		MaxSize:           255,
-		MaxHandleFailures: 3,
+		c.PollInterval = DefaultPollInterval
+		c.MaxRetries = DefaultMaxRetries
 
-		PollInterval: DefaultPollInterval,
-		MaxRetries:   DefaultMaxRetries,
+		c.ConsumerCount = 3
 
-		ConsumerCount: 3,
-
-		MessageIDGenerator: DefaultOptions.MessageIDGenerator,
+		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
 	}
 )
 
@@ -127,7 +126,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 		}
 	}
 
-	timeout := time.NewTimer(2 * time.Second)
+	timeout := time.NewTimer(1 * time.Second)
 	for {
 		time.Sleep(10 * time.Millisecond)
 		select {
