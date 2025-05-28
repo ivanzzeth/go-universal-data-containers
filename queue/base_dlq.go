@@ -23,7 +23,7 @@ func newBaseDLQ[T any](q, dlq Queue[T]) (*BaseDLQ[T], error) {
 
 func (q *BaseDLQ[T]) Redrive(ctx context.Context, items int) error {
 	for i := 0; i < items; i++ {
-		msg, err := q.associatedQueue.Dequeue(ctx)
+		msg, err := q.Dequeue(ctx)
 		if err != nil {
 			if !errors.Is(err, ErrQueueEmpty) {
 				return err
@@ -32,7 +32,7 @@ func (q *BaseDLQ[T]) Redrive(ctx context.Context, items int) error {
 			return nil
 		}
 
-		err = q.Enqueue(ctx, msg.Data())
+		err = q.associatedQueue.Enqueue(ctx, msg.Data())
 		if err != nil {
 			return err
 		}

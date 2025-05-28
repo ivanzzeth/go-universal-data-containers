@@ -159,6 +159,7 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 
 	var mutex sync.Mutex
 	currFailures := 0
+	handleSucceeded := false
 	q.Subscribe(func(msg Message[[]byte]) error {
 		if currFailures <= maxFailures {
 			mutex.Lock()
@@ -167,6 +168,7 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 			return errors.New("test max failures")
 		}
 
+		handleSucceeded = true
 		return nil
 	})
 
@@ -195,7 +197,30 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 		if !bytes.Equal(msg.Data(), []byte(fmt.Sprintf("data"))) {
 			t.Fatal("expected", []byte(fmt.Sprintf("data")), "got", msg.Data())
 		}
+
+		// Push back
+		err = dlq.Enqueue(context.Background(), msg.Data())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Then redrive
+		err = dlq.Redrive(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Redrive again when dlq is empty
+		err = dlq.Redrive(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Wait for msg handling
+		time.Sleep(1 * time.Second)
 	}
+
+	assert.Equal(t, true, handleSucceeded)
 }
 
 func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
