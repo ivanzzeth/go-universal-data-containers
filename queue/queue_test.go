@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
+	"github.com/stretchr/testify/assert"
 )
 
 var (
@@ -223,6 +224,10 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 		t.Run(fmt.Sprintf("#case%d", i), func(t *testing.T) {
 			var mutex sync.Mutex
 			allData := make(map[string]int)
+
+			var mutex2 sync.Mutex
+			allData2 := make(map[string]int)
+
 			isSubscribeErrReturned := make(map[string]bool)
 
 			q, err := f.GetOrCreate(fmt.Sprintf("test-%d", i))
@@ -231,6 +236,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 			}
 			defer q.Close()
 
+			// Handler1
 			q.Subscribe(func(msg Message[[]byte]) error {
 				b := msg.Data()
 
@@ -257,6 +263,25 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 				return nil
 			})
 
+			// Handler2
+			q.Subscribe(func(msg Message[[]byte]) error {
+				b := msg.Data()
+
+				t.Logf("Subscribe 2 in test: %v", msg)
+				var data dataAndErr
+				err := json.Unmarshal(b, &data)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				mutex2.Lock()
+				defer mutex2.Unlock()
+
+				allData2[data.Data] += 1
+
+				return nil
+			})
+
 			for _, d := range tt.data {
 				data, err := json.Marshal(&d)
 				if err != nil {
@@ -277,6 +302,12 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 				}
 				if allData[d.Data] > 1 {
 					t.Fatalf("expected %v to be included once, count=%v", d.Data, allData[d.Data])
+				}
+
+				if d.Err != "" {
+					assert.Equal(t, 2, allData2[d.Data])
+				} else {
+					assert.Equal(t, 1, allData2[d.Data])
 				}
 			}
 		})
