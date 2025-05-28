@@ -11,6 +11,7 @@ var (
 	_ Queue[any]            = &MemoryQueue[any]{}
 	_ RecoverableQueue[any] = &MemoryQueue[any]{}
 	_ Purgeable             = &MemoryQueue[any]{}
+	_ DLQer[any]            = &MemoryQueue[any]{}
 )
 
 type MemoryFactory[T any] struct {
@@ -71,7 +72,24 @@ func NewMemoryQueue[T any](name string, defaultMsg Message[T], options ...Option
 		BaseQueue: baseQueue,
 	}
 
+	dlqBaseQueue, err := NewBaseQueue(q.GetDeadletterQueueName(), defaultMsg, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	dlq := &MemoryQueue[T]{
+		BaseQueue: dlqBaseQueue,
+	}
+
+	DLQ, err := newBaseDLQ(q, dlq)
+	if err != nil {
+		return nil, err
+	}
+
+	q.SetDLQ(DLQ)
+
 	go q.run()
+	go dlq.run()
 
 	return q, nil
 }
@@ -167,13 +185,19 @@ Loop:
 }
 
 func (q *MemoryQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
-	if msg.RetryCount() > q.config.MaxHandleFailures {
-		// Just ignore it for now
+	if msg.RetryCount() >= q.config.MaxHandleFailures {
+		err := q.dlq.Enqueue(ctx, msg.Data())
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
 
 	msg.AddRetryCount()
 	msg.RefreshUpdatedAt()
+
+	// fmt.Printf("Recover data: MaxHandleFailures: %v,%+v\n", q.config.MaxHandleFailures, msg)
 
 	packedData, err := msg.Pack()
 	if err != nil {

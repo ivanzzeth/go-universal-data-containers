@@ -24,6 +24,8 @@ type BaseQueue[T any] struct {
 
 	msgBuffer   chan struct{}
 	exitChannel chan int
+
+	dlq DLQ[T]
 }
 
 func NewBaseQueue[T any](name string, defaultMsg Message[T], options ...Option) (*BaseQueue[T], error) {
@@ -112,6 +114,26 @@ func (q *BaseQueue[T]) ValidateQueueClosed() error {
 
 func (q *BaseQueue[T]) GetQueueKey() string {
 	return fmt.Sprintf("%v::%v", Namespace, q.name)
+}
+
+func (q *BaseQueue[T]) GetDeadletterQueueName() string {
+	return fmt.Sprintf("%v::DLQ", q.name)
+}
+
+func (q *BaseQueue[T]) GetDeadletterQueueKey() string {
+	return fmt.Sprintf("%v::%v", Namespace, q.GetDeadletterQueueName())
+}
+
+func (q *BaseQueue[T]) SetDLQ(dlq DLQ[T]) {
+	q.dlq = dlq
+}
+
+func (q *BaseQueue[T]) DLQ() (DLQ[T], error) {
+	if q.dlq == nil {
+		return nil, common.ErrNotImplemented
+	}
+
+	return q.dlq, nil
 }
 
 func (q *BaseQueue[T]) Pack(data T) ([]byte, error) {

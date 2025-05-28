@@ -9,9 +9,12 @@ import (
 )
 
 var (
-	_ Queue[any]            = (*RedisQueue[any])(nil)
-	_ RecoverableQueue[any] = (*RedisQueue[any])(nil)
-	_ Factory[any]          = (*RedisQueueFactory[any])(nil)
+	_ Queue[any]   = (*RedisQueue[any])(nil)
+	_ Factory[any] = (*RedisQueueFactory[any])(nil)
+
+	_ RecoverableQueue[any] = &RedisQueue[any]{}
+	_ Purgeable             = &RedisQueue[any]{}
+	_ DLQer[any]            = &RedisQueue[any]{}
 )
 
 type RedisQueueFactory[T any] struct {
@@ -57,8 +60,6 @@ func (f *RedisQueueFactory[T]) GetOrCreateSafe(name string, options ...Option) (
 type RedisQueue[T any] struct {
 	*BaseQueue[T]
 	redisClient redis.Cmdable
-
-	name string
 }
 
 func NewRedisQueue[T any](redisClient redis.Cmdable, name string, defaultMsg Message[T], options ...Option) (*RedisQueue[T], error) {
@@ -70,10 +71,27 @@ func NewRedisQueue[T any](redisClient redis.Cmdable, name string, defaultMsg Mes
 	q := &RedisQueue[T]{
 		BaseQueue:   baseQueue,
 		redisClient: redisClient,
-		name:        name,
 	}
 
+	dlqBaseQueue, err := NewBaseQueue(q.GetDeadletterQueueName(), defaultMsg, options...)
+	if err != nil {
+		return nil, err
+	}
+
+	dlq := &RedisQueue[T]{
+		BaseQueue:   dlqBaseQueue,
+		redisClient: redisClient,
+	}
+
+	DLQ, err := newBaseDLQ(q, dlq)
+	if err != nil {
+		return nil, err
+	}
+
+	q.SetDLQ(DLQ)
+
 	go q.run()
+	go dlq.run()
 
 	return q, nil
 }
@@ -118,6 +136,10 @@ func (q *RedisQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	return msg, nil
 }
 
+func (q *RedisQueue[T]) Purge(ctx context.Context) error {
+	return q.redisClient.Del(ctx, q.GetQueueKey()).Err()
+}
+
 func (q *RedisQueue[T]) run() {
 Loop:
 	for {
@@ -145,7 +167,11 @@ Loop:
 
 func (q *RedisQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 	if msg.RetryCount() >= q.config.MaxHandleFailures {
-		// Just ignore it for now
+		err := q.dlq.Enqueue(ctx, msg.Data())
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
 

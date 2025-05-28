@@ -152,7 +152,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 
 func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]byte]) {
 	maxFailures := 3
-	q, err := f.GetOrCreate("queue", WithMaxHandleFailures(maxFailures))
+	q, err := f.GetOrCreateSafe("queue", WithMaxHandleFailures(maxFailures))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 	var mutex sync.Mutex
 	currFailures := 0
 	q.Subscribe(func(msg Message[[]byte]) error {
-		if currFailures < maxFailures {
+		if currFailures <= maxFailures {
 			mutex.Lock()
 			defer mutex.Unlock()
 			currFailures++
@@ -177,8 +177,24 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 
 	time.Sleep(1 * time.Second)
 
-	if currFailures != maxFailures {
+	if currFailures != maxFailures+1 {
 		t.Fatal("expected", maxFailures, "got", currFailures)
+	}
+
+	if q.IsDLQSupported() {
+		dlq, err := q.DLQ()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		msg, err := dlq.Dequeue(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal(msg.Data(), []byte(fmt.Sprintf("data"))) {
+			t.Fatal("expected", []byte(fmt.Sprintf("data")), "got", msg.Data())
+		}
 	}
 }
 
