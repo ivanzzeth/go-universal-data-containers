@@ -60,3 +60,36 @@ func TestRedisQueueSubscribe(t *testing.T) {
 
 	SpecTestQueueSubscribe(t, f)
 }
+
+func TestRedisQueueTimeout(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+	SpecTestQueueTimeout(t, f)
+}
+
+func TestRedisQueueStressTest(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+	SpecTestQueueStressTest(t, f)
+}
+
+func TestRedisQueueErrorHandling(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+	SpecTestQueueErrorHandling(t, f)
+}

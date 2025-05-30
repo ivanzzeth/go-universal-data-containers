@@ -86,6 +86,10 @@ func (q *BaseQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	return nil, common.ErrNotImplemented
 }
 
+func (q *BaseQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
+	return nil, common.ErrNotImplemented
+}
+
 func (q *BaseQueue[T]) Subscribe(cb Handler[T]) {
 	q.callbacks = append(q.callbacks, cb)
 }

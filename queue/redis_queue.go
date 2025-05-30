@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"errors"
+	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -96,15 +97,28 @@ func NewRedisQueue[T any](redisClient redis.Cmdable, name string, defaultMsg Mes
 	return q, nil
 }
 
-func (q *RedisQueue[T]) MaxSize() int {
-	return UnlimitedSize
-}
+// func (q *RedisQueue[T]) MaxSize() int {
+// 	return UnlimitedSize
+// }
 
 func (q *RedisQueue[T]) Enqueue(ctx context.Context, data T) error {
 	// fmt.Printf("Enqueue %v\n", data)
+	if reflect.ValueOf(data).IsNil() {
+		return ErrInvalidData
+	}
+
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
+	}
+
+	len, err := q.redisClient.LLen(ctx, q.GetQueueKey()).Result()
+	if err != nil {
+		return err
+	}
+
+	if q.MaxSize() > 0 && int(len) >= q.MaxSize() {
+		return ErrQueueFull
 	}
 
 	packedData, err := q.Pack(data)
@@ -134,6 +148,27 @@ func (q *RedisQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	}
 
 	return msg, nil
+}
+
+func (q *RedisQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			msg, err := q.Dequeue(ctx)
+			if err != nil {
+				if errors.Is(err, ErrQueueEmpty) {
+					time.Sleep(q.config.PollInterval)
+					continue
+				}
+
+				return nil, err
+			}
+
+			return msg, nil
+		}
+	}
 }
 
 func (q *RedisQueue[T]) Purge(ctx context.Context) error {

@@ -25,6 +25,7 @@ var (
 	ErrQueueFull      = errors.New("queue is full")
 	ErrQueueEmpty     = errors.New("queue is empty")
 	ErrQueueRecovered = errors.New("queue recovered")
+	ErrInvalidData    = errors.New("invalid data")
 )
 
 type Factory[T any] interface {
@@ -62,6 +63,9 @@ type Queue[T any] interface {
 	// The implementation MUST set the retryCount of the message to 0 if its retryCount > MaxHandleFailures,
 	// in the case, the message is from DLQ redriving.
 	Dequeue(context.Context) (Message[T], error)
+
+	// Same as Dequeue but block thread until message is available
+	BDequeue(context.Context) (Message[T], error)
 
 	// Subscribe queue with message confirmation.
 	// Once handler returns error, it'll automatically put message back to queue using `Recover` mechanism internally.

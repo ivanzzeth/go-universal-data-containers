@@ -2,6 +2,8 @@ package queue
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -107,6 +109,10 @@ func (q *MemoryQueue[T]) Name() string {
 }
 
 func (q *MemoryQueue[T]) Enqueue(ctx context.Context, data T) error {
+	if reflect.ValueOf(data).IsNil() {
+		return ErrInvalidData
+	}
+
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
@@ -157,6 +163,27 @@ func (q *MemoryQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	}
 
 	return nil, ErrQueueEmpty
+}
+
+func (q *MemoryQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			msg, err := q.Dequeue(ctx)
+			if err != nil {
+				if errors.Is(err, ErrQueueEmpty) {
+					time.Sleep(q.config.PollInterval)
+					continue
+				}
+
+				return nil, err
+			}
+
+			return msg, nil
+		}
+	}
 }
 
 func (q *MemoryQueue[T]) run() {

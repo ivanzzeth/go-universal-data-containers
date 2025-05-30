@@ -86,6 +86,17 @@ func (q *SimpleQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	return data, nil
 }
 
+func (q *SimpleQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
+	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
+	data, err := q.queue.BDequeue(ctx)
+	if err != nil {
+		metrics.MetricQueueDequeueErrorTotal.WithLabelValues(q.Name()).Inc()
+		return nil, err
+	}
+
+	return data, nil
+}
+
 func (q *SimpleQueue[T]) Subscribe(cb Handler[T]) {
 	q.queue.Subscribe(func(msg Message[T]) error {
 		startTime := time.Now()

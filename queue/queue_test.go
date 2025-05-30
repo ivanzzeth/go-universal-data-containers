@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -352,6 +353,130 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 				}
 			}
 		})
+	}
+}
+
+func SpecTestQueueTimeout(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("timeout-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Dequeue from empty queue should fail with timeout
+	_, err = q.BDequeue(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded error, got: %v", err)
+	}
+}
+
+func SpecTestQueueStressTest(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("stress-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Configure stress test parameters
+	numProducers := 10
+	numConsumers := 5
+	messagesPerProducer := 100
+	totalMessages := numProducers * messagesPerProducer
+
+	// Track results
+	var receivedCount int32
+	receivedMessages := make(map[string]bool)
+	var mutex sync.Mutex
+
+	// Start consumers
+	var wg sync.WaitGroup
+	for i := 0; i < numConsumers; i++ {
+		wg.Add(1)
+		go func(consumerID int) {
+			defer wg.Done()
+			for {
+				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				msg, err := q.BDequeue(ctx)
+				cancel()
+
+				if err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						// Check if all messages have been processed
+						if int(receivedCount) >= totalMessages {
+							return
+						}
+						continue
+					}
+					t.Errorf("consumer %d dequeue error: %v", consumerID, err)
+					return
+				}
+
+				mutex.Lock()
+				receivedMessages[string(msg.Data())] = true
+				mutex.Unlock()
+				atomic.AddInt32(&receivedCount, 1)
+			}
+		}(i)
+	}
+
+	// Start producers
+	for i := 0; i < numProducers; i++ {
+		wg.Add(1)
+		go func(producerID int) {
+			defer wg.Done()
+			for j := 0; j < messagesPerProducer; j++ {
+				data := []byte(fmt.Sprintf("producer-%d-msg-%d", producerID, j))
+				err := q.Enqueue(context.Background(), data)
+				if err != nil {
+					t.Errorf("producer %d enqueue error: %v", producerID, err)
+					return
+				}
+			}
+		}(i)
+	}
+
+	// Wait for all producers and consumers to complete
+	wg.Wait()
+
+	// Verify results
+	if int(receivedCount) != totalMessages {
+		t.Errorf("expected %d messages, got %d", totalMessages, receivedCount)
+	}
+
+	// Verify all messages were processed correctly
+	mutex.Lock()
+	defer mutex.Unlock()
+	for i := 0; i < numProducers; i++ {
+		for j := 0; j < messagesPerProducer; j++ {
+			expected := fmt.Sprintf("producer-%d-msg-%d", i, j)
+			if !receivedMessages[expected] {
+				t.Errorf("missing message: %s", expected)
+			}
+		}
+	}
+}
+
+func SpecTestQueueErrorHandling(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("error-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test nil data
+	err = q.Enqueue(context.Background(), nil)
+	if err == nil {
+		t.Error("expected error when enqueueing nil data")
+	}
+
+	// Test operations after queue closure
+	q.Close()
+	err = q.Enqueue(context.Background(), []byte("test"))
+	if !errors.Is(err, ErrQueueClosed) {
+		t.Errorf("expected ErrQueueClosed, got: %v", err)
 	}
 }
 
