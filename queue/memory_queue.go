@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"errors"
-	"reflect"
 	"sync"
 	"time"
 )
@@ -109,10 +108,6 @@ func (q *MemoryQueue[T]) Name() string {
 }
 
 func (q *MemoryQueue[T]) Enqueue(ctx context.Context, data T) error {
-	if reflect.ValueOf(data).IsNil() {
-		return ErrInvalidData
-	}
-
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err

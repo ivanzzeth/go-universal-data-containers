@@ -468,9 +468,7 @@ func SpecTestQueueErrorHandling(t *testing.T, f Factory[[]byte]) {
 
 	// Test nil data
 	err = q.Enqueue(context.Background(), nil)
-	if err == nil {
-		t.Error("expected error when enqueueing nil data")
-	}
+	assert.Equal(t, nil, err)
 
 	// Test operations after queue closure
 	q.Close()

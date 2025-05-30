@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"errors"
-	"reflect"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -103,10 +102,6 @@ func NewRedisQueue[T any](redisClient redis.Cmdable, name string, defaultMsg Mes
 
 func (q *RedisQueue[T]) Enqueue(ctx context.Context, data T) error {
 	// fmt.Printf("Enqueue %v\n", data)
-	if reflect.ValueOf(data).IsNil() {
-		return ErrInvalidData
-	}
-
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
