@@ -129,6 +129,25 @@ func (q *RedisQueue[T]) Enqueue(ctx context.Context, data T) error {
 	return q.redisClient.RPush(ctx, q.GetQueueKey(), packedData).Err()
 }
 
+func (q *RedisQueue[T]) BEnqueue(ctx context.Context, data T) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			err := q.Enqueue(ctx, data)
+			if err != nil {
+				if errors.Is(err, ErrQueueFull) {
+					time.Sleep(q.config.PollInterval)
+					continue
+				}
+
+				return err
+			}
+		}
+	}
+}
+
 func (q *RedisQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	data, err := q.redisClient.LPop(ctx, q.GetQueueKey()).Result()
 	if errors.Is(err, redis.Nil) {

@@ -57,6 +57,9 @@ type Queue[T any] interface {
 	// Failed if queue is full or closed
 	Enqueue(ctx context.Context, data T) error
 
+	// Same as Enqueue but block thread until queue is not full and message is enqueued
+	BEnqueue(ctx context.Context, data T) error
+
 	// Pop data from beginning of queue without message confirmation
 	// Failed if queue is empty
 

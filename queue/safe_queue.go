@@ -75,6 +75,17 @@ func (q *SimpleQueue[T]) Enqueue(ctx context.Context, data T) error {
 	return nil
 }
 
+func (q *SimpleQueue[T]) BEnqueue(ctx context.Context, data T) error {
+	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
+	err := q.queue.BEnqueue(ctx, data)
+	if err != nil {
+		metrics.MetricQueueEnqueueErrorTotal.WithLabelValues(q.Name()).Inc()
+		return err
+	}
+
+	return nil
+}
+
 func (q *SimpleQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
 	data, err := q.queue.Dequeue(ctx)

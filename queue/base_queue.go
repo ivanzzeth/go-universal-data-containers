@@ -82,6 +82,10 @@ func (q *BaseQueue[T]) Enqueue(ctx context.Context, data T) error {
 	return common.ErrNotImplemented
 }
 
+func (q *BaseQueue[T]) BEnqueue(ctx context.Context, data T) error {
+	return common.ErrNotImplemented
+}
+
 func (q *BaseQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	return nil, common.ErrNotImplemented
 }

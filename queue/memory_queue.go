@@ -138,6 +138,25 @@ func (q *MemoryQueue[T]) Enqueue(ctx context.Context, data T) error {
 	return nil
 }
 
+func (q *MemoryQueue[T]) BEnqueue(ctx context.Context, data T) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			err := q.Enqueue(ctx, data)
+			if err != nil {
+				if errors.Is(err, ErrQueueFull) {
+					time.Sleep(q.config.PollInterval)
+					continue
+				}
+
+				return err
+			}
+		}
+	}
+}
+
 func (q *MemoryQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	err := q.GetLocker().Lock(ctx)
 	if err != nil {
