@@ -4,8 +4,13 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
+)
+
+const (
+	defaultStateContainerMemoryCacheTTL = time.Second * 10
 )
 
 var (
@@ -131,6 +136,9 @@ func (s *StateContainer[T]) Get(ctx context.Context) (T, error) {
 	if stateContainerMemoryCacheEnabled {
 		defer func() {
 			stateContainerMemoryCache.SaveStates(ctx, s.state)
+			time.AfterFunc(defaultStateContainerMemoryCacheTTL, func() {
+				stateContainerMemoryCache.ClearStates(ctx, s.state)
+			})
 		}()
 	}
 
