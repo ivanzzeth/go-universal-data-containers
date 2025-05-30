@@ -23,16 +23,6 @@ type RedisQueueFactory[T any] struct {
 }
 
 func NewRedisQueueFactory[T any](redisClient redis.Cmdable, defaultMsg Message[T]) *RedisQueueFactory[T] {
-	errChan := make(chan error, 100)
-	go func() {
-		for err := range errChan {
-			if err != nil {
-				// TODO: logging
-				// fmt.Printf("redis queue got err: %v\n", err)
-			}
-		}
-	}()
-
 	return &RedisQueueFactory[T]{
 		redisClient: redisClient,
 		defaultMsg:  defaultMsg,
