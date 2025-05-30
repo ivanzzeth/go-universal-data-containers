@@ -28,6 +28,11 @@ func TestMemoryQueueSubscribe(t *testing.T) {
 	SpecTestQueueSubscribe(t, f)
 }
 
+func TestMemoryQueueSubscribeWithConsumerCount(t *testing.T) {
+	f := NewMemoryFactory(NewJsonMessage([]byte{}))
+	SpecTestQueueSubscribeWithConsumerCount(t, f)
+}
+
 func TestMemoryQueueTimeout(t *testing.T) {
 	f := NewMemoryFactory(NewJsonMessage([]byte{}))
 	SpecTestQueueTimeout(t, f)

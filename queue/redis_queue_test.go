@@ -61,6 +61,18 @@ func TestRedisQueueSubscribe(t *testing.T) {
 	SpecTestQueueSubscribe(t, f)
 }
 
+func TestRedisQueueSubscribeWithConsumerCount(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+
+	SpecTestQueueSubscribeWithConsumerCount(t, f)
+}
+
 func TestRedisQueueTimeout(t *testing.T) {
 	s := miniredis.RunT(t)
 

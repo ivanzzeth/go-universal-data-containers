@@ -356,6 +356,65 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 	}
 }
 
+func SpecTestQueueSubscribeWithConsumerCount(t *testing.T, f Factory[[]byte]) {
+	// Set up queue with 3 consumers
+
+	q, err := f.GetOrCreate("subscribe-with-consumer-count-test", func(c *Config) {
+		c.ConsumerCount = 3
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Test with multiple consumers using ConsumerCount option
+	numMessages := 100
+	receivedMessages := make(map[string]bool)
+	var mutex sync.Mutex
+
+	// Subscribe and process messages
+	go func() {
+		q.Subscribe(func(msg Message[[]byte]) error {
+			mutex.Lock()
+			receivedMessages[string(msg.Data())] = true
+			mutex.Unlock()
+			return nil
+		})
+	}()
+
+	// Enqueue test messages
+	for i := 0; i < numMessages; i++ {
+		msg := fmt.Sprintf("msg-%d", i)
+		err := q.Enqueue(context.Background(), []byte(msg))
+		if err != nil {
+			t.Fatalf("failed to enqueue message: %v", err)
+		}
+	}
+
+	// Wait some time for processing
+	time.Sleep(2 * time.Second)
+
+	// Verify all messages were received
+	mutex.Lock()
+	receivedCount := len(receivedMessages)
+	mutex.Unlock()
+
+	if receivedCount != numMessages {
+		t.Errorf("expected %d messages, got %d", numMessages, receivedCount)
+	}
+
+	// Verify each message was received exactly once
+	for i := 0; i < numMessages; i++ {
+		msg := fmt.Sprintf("msg-%d", i)
+		mutex.Lock()
+		if !receivedMessages[msg] {
+			t.Errorf("message not received: %s", msg)
+		}
+		mutex.Unlock()
+	}
+}
+
 func SpecTestQueueTimeout(t *testing.T, f Factory[[]byte]) {
 	q, err := f.GetOrCreate("timeout-test")
 	if err != nil {
