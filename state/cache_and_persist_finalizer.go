@@ -15,6 +15,9 @@ var (
 )
 
 type CacheAndPersistFinalizer struct {
+	ctx       context.Context
+	cancelCtx context.CancelFunc
+
 	ticker   <-chan time.Time
 	interval time.Duration
 
@@ -26,7 +29,6 @@ type CacheAndPersistFinalizer struct {
 	cache               Storage
 	persist             Storage
 	autoFinalizeEnabled atomic.Bool
-	exitChannel         chan struct{}
 }
 
 func NewCacheAndPersistFinalizer(interval time.Duration, registry Registry, lockerGenerator locker.SyncLockerGenerator, cache Storage, persist Storage, name string) *CacheAndPersistFinalizer {
@@ -41,7 +43,12 @@ func NewCacheAndPersistFinalizer(interval time.Duration, registry Registry, lock
 		panic(fmt.Errorf("failed to register finalize state: %v", err))
 	}
 
+	ctx, cancelCtx := context.WithCancel(context.Background())
+
 	f := &CacheAndPersistFinalizer{
+		ctx:       ctx,
+		cancelCtx: cancelCtx,
+
 		ticker:   ticker,
 		interval: interval,
 
@@ -52,8 +59,6 @@ func NewCacheAndPersistFinalizer(interval time.Duration, registry Registry, lock
 		StorageSnapshot: cache,
 		cache:           cache,
 		persist:         persist,
-
-		exitChannel: make(chan struct{}),
 	}
 
 	go f.run()
@@ -91,7 +96,7 @@ func (u *FinalizeState) StateIDComponents() StateIDComponents {
 }
 
 func (s *CacheAndPersistFinalizer) Close() {
-	close(s.exitChannel)
+	s.cancelCtx()
 }
 
 func (s *CacheAndPersistFinalizer) LoadState(ctx context.Context, name string, id string) (State, error) {
@@ -276,11 +281,11 @@ func (s *CacheAndPersistFinalizer) GetPersistStorage() Storage {
 func (s *CacheAndPersistFinalizer) run() {
 	for {
 		select {
-		case <-s.exitChannel:
+		case <-s.ctx.Done():
 			return
 		case <-s.ticker:
 			if s.autoFinalizeEnabled.Load() {
-				err := s.FinalizeAllCachedStates(context.TODO())
+				err := s.FinalizeAllCachedStates(s.ctx)
 				if err != nil {
 					// TODO: logging
 					// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)
