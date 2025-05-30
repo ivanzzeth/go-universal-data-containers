@@ -93,3 +93,27 @@ func TestRedisQueueErrorHandling(t *testing.T) {
 	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
 	SpecTestQueueErrorHandling(t, f)
 }
+
+func TestRedisQueueBlockingOperations(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+
+	SpecTestQueueBlockingOperations(t, f)
+}
+
+func TestRedisQueueBlockingWithContext(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+
+	SpecTestQueueBlockingWithContext(t, f)
+}

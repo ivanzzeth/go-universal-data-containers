@@ -42,3 +42,13 @@ func TestMemoryQueueErrorHandling(t *testing.T) {
 	f := NewMemoryFactory(NewJsonMessage([]byte{}))
 	SpecTestQueueErrorHandling(t, f)
 }
+
+func TestMemoryQueueBlockingOperations(t *testing.T) {
+	f := NewMemoryFactory(NewJsonMessage([]byte{}))
+	SpecTestQueueBlockingOperations(t, f)
+}
+
+func TestMemoryQueueBlockingWithContext(t *testing.T) {
+	f := NewMemoryFactory(NewJsonMessage([]byte{}))
+	SpecTestQueueBlockingWithContext(t, f)
+}
