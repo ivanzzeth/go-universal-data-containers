@@ -154,6 +154,18 @@ func (q *BaseQueue[T]) Pack(data T) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Make sure the packed data is the same as the original data
+	msgToTest, err := q.NewMessage(data)
+	if err != nil {
+		return nil, err
+	}
+
+	err = msgToTest.Unpack(packedData)
+	if err != nil {
+		return nil, err
+	}
+
 	return packedData, nil
 }
 

@@ -94,17 +94,26 @@ func SpecTestQueueSequencial(t *testing.T, q Queue[[]byte]) {
 func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 	maxSize := getMaxSize(q)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	datas := [][]byte{}
 	go func() {
 		for {
-			data, err := q.Dequeue(context.Background())
-			if err != nil {
-				time.Sleep(100 * time.Millisecond)
-				t.Logf("Dequeue failed: %v", err)
-				continue
-			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				data, err := q.Dequeue(context.Background())
+				if err != nil {
+					time.Sleep(100 * time.Millisecond)
+					// Commented out to avoid panic after the SpecTestQueueConcurrent has completed.
+					// t.Logf("Dequeue failed: %v", err)
+					continue
+				}
 
-			datas = append(datas, data.Data())
+				datas = append(datas, data.Data())
+			}
 		}
 	}()
 
@@ -233,6 +242,11 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 	testcases := []struct {
 		data []dataAndErr
 	}{
+		{
+			data: []dataAndErr{
+				{"data1", ""},
+			},
+		},
 		{
 			data: []dataAndErr{
 				{"data1", ""},
