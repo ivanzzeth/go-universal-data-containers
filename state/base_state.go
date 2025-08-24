@@ -2,6 +2,7 @@ package state
 
 import (
 	"context"
+	"sync"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
@@ -12,6 +13,8 @@ var (
 )
 
 type BaseState struct {
+	mutex        sync.RWMutex
+	once         sync.Once
 	stateName    string
 	idMarshaler  IDMarshaler
 	idComponents StateIDComponents
@@ -53,6 +56,9 @@ func (s *BaseState) GetLocker() locker.SyncLocker {
 }
 
 func (s *BaseState) Initialize(generator locker.SyncLockerGenerator, stateName string, idMarshaler IDMarshaler, idComponents StateIDComponents) (err error) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
 	s.idMarshaler = idMarshaler
 	s.idComponents = idComponents
 	s.stateName = stateName
@@ -66,23 +72,23 @@ func (s *BaseState) GetLockerGenerator() locker.SyncLockerGenerator {
 }
 
 func (s *BaseState) Lock(ctx context.Context) error {
-	if s.locker == nil {
+	s.once.Do(func() {
 		err := s.initLocker()
 		if err != nil {
-			return err
+			panic(err)
 		}
-	}
+	})
 
 	return s.locker.Lock(ctx)
 }
 
 func (s *BaseState) Unlock(ctx context.Context) error {
-	if s.locker == nil {
+	s.once.Do(func() {
 		err := s.initLocker()
 		if err != nil {
-			return err
+			panic(err)
 		}
-	}
+	})
 
 	return s.locker.Unlock(ctx)
 }
@@ -100,10 +106,14 @@ func (s *BaseState) initLocker() error {
 	// }
 
 	// fmt.Printf("Initialize GetStateLockerByName, stateName: %v, stateID: %v, idComponents: %v\n", stateName, stateID, idComponentsStr)
-	s.locker, err = GetStateLockerByName(s.lockerGenerator, s.stateName, stateID)
+	locker, err := GetStateLockerByName(s.lockerGenerator, s.stateName, stateID)
 	if err != nil {
 		return err
 	}
+
+	s.mutex.Lock()
+	s.locker = locker
+	s.mutex.Unlock()
 
 	return nil
 }

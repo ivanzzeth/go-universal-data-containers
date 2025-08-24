@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
@@ -41,31 +42,43 @@ func SetStateContainerMemoryCache(storage Storage) {
 // It uses `Finalizer` to finalize state into persist storage to
 // speed up your application even distributed system.
 type StateContainer[T State] struct {
+	mutex     sync.RWMutex
 	finalizer Finalizer
 	state     T
 }
 
 func NewStateContainer[T State](state T) *StateContainer[T] {
-	finalizer := GetDefaultFinalizer()
-	return &StateContainer[T]{
-		finalizer: finalizer,
-		state:     state,
-	}
+	container := &StateContainer[T]{}
+	container.mutex.Lock()
+	container.finalizer = GetDefaultFinalizer()
+	container.state = state
+	container.mutex.Unlock()
+
+	return container
 }
 
 func NewStateContainerWithFinalizer[T State](finalizer Finalizer, state T) *StateContainer[T] {
-	return &StateContainer[T]{
-		finalizer: finalizer,
-		state:     state,
-	}
+	container := &StateContainer[T]{}
+	container.mutex.Lock()
+	container.finalizer = finalizer
+	container.state = state
+	container.mutex.Unlock()
+
+	return container
 }
 
 func (s *StateContainer[T]) Wrap(state T) *StateContainer[T] {
+	s.mutex.Lock()
 	s.state = state
+	s.mutex.Unlock()
+
 	return s
 }
 
 func (s *StateContainer[T]) StateID() (stateID string, err error) {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+
 	return GetStateID(s.state)
 }
 
@@ -78,7 +91,11 @@ func (s *StateContainer[T]) GetLocker() (locker.SyncLocker, error) {
 
 	// fmt.Printf("GetLocker GetStateLockerByName, lockerGenerator: %T, state: %+v\n", s.state.GetLockerGenerator(), s.state)
 
-	locker, err := GetStateLockerByName(s.state.GetLockerGenerator(), s.state.StateName(), stateID)
+	s.mutex.RLock()
+	state := s.state
+	s.mutex.RUnlock()
+
+	locker, err := GetStateLockerByName(state.GetLockerGenerator(), state.StateName(), stateID)
 	if err != nil {
 		return nil, err
 	}
@@ -164,25 +181,35 @@ func (s *StateContainer[T]) GetFromMemory(ctx context.Context) (T, error) {
 		return s.nilState(), ErrStateContainerMemoryCacheDisabled
 	}
 
+	s.mutex.RLock()
+
 	if len(s.state.StateIDComponents()) == 0 {
+		s.mutex.RUnlock()
 		return s.nilState(), ErrStateIDComponents
 	}
 
 	stateID, err := GetStateID(s.state)
 	if err != nil {
+		s.mutex.RUnlock()
 		return s.state, err
 	}
 
 	state, err := stateContainerMemoryCache.LoadState(ctx, s.state.StateName(), stateID)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
+			s.mutex.RUnlock()
 			return s.nilState(), err
 		}
 
+		s.mutex.RUnlock()
 		// Not found, then using `Get`
 		return s.Get(ctx)
 	}
 
+	s.mutex.RUnlock()
+
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 	s.state = state.(T)
 
 	return s.state, nil
