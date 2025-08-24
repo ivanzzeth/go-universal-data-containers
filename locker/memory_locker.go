@@ -40,47 +40,58 @@ func (g *MemoryRWLockerGenerator) CreateSyncRWLocker(name string) (SyncRWLocker,
 }
 
 type MutexWrapper struct {
-	m sync.Locker
+	m      sync.Mutex
+	locker sync.Locker
 }
 
-func NewMutexWrapper(m sync.Locker) *MutexWrapper {
-	return &MutexWrapper{m: m}
+func NewMutexWrapper(locker sync.Locker) *MutexWrapper {
+	m := &MutexWrapper{}
+	m.m.Lock()
+	m.locker = locker
+	m.m.Unlock()
+	return m
 }
 
 func (m *MutexWrapper) Lock(ctx context.Context) error {
 	m.m.Lock()
+	locker := m.locker
+	m.m.Unlock()
+	locker.Lock()
 	return nil
 }
 
 func (m *MutexWrapper) Unlock(ctx context.Context) error {
+	m.m.Lock()
+	locker := m.locker
 	m.m.Unlock()
+	locker.Unlock()
 	return nil
 }
 
 type RWMutexWrapper struct {
-	m *sync.RWMutex
+	locker *sync.RWMutex
 }
 
 func NewRWMutexWrapper(m *sync.RWMutex) *RWMutexWrapper {
-	return &RWMutexWrapper{m: m}
+	return &RWMutexWrapper{locker: m}
 }
 
 func (m *RWMutexWrapper) Lock(ctx context.Context) error {
-	m.m.Lock()
+	m.locker.Lock()
 	return nil
 }
 
 func (m *RWMutexWrapper) Unlock(ctx context.Context) error {
-	m.m.Unlock()
+	m.locker.Unlock()
 	return nil
 }
 
 func (m *RWMutexWrapper) RLock(ctx context.Context) error {
-	m.m.RLock()
+	m.locker.RLock()
 	return nil
 }
 
 func (m *RWMutexWrapper) RUnlock(ctx context.Context) error {
-	m.m.RUnlock()
+	m.locker.RUnlock()
 	return nil
 }
