@@ -1,6 +1,7 @@
 package time
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -22,6 +23,8 @@ func SpecTestTicker(t *testing.T, tickerFactory func() Ticker) {
 
 	var receivedCount atomic.Int64
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	for i := 0; i < count; i++ {
 		go func(i int) {
 			ticker := tickers[i]
@@ -32,6 +35,8 @@ func SpecTestTicker(t *testing.T, tickerFactory func() Ticker) {
 
 			for {
 				select {
+				case <-ctx.Done():
+					return
 				case tickTime := <-tick:
 					t.Logf("ticker#%d: %v", i, tickTime)
 					// time.Sleep(time.Second)
