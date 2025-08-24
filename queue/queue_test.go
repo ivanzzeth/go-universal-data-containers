@@ -97,6 +97,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	datasMutex := sync.RWMutex{}
 	datas := [][]byte{}
 	go func() {
 		for {
@@ -112,7 +113,9 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 					continue
 				}
 
+				datasMutex.Lock()
 				datas = append(datas, data.Data())
+				datasMutex.Unlock()
 			}
 		}
 	}()
@@ -142,8 +145,11 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 		time.Sleep(10 * time.Millisecond)
 		select {
 		case <-timeout.C:
+			datasMutex.RLock()
 			t.Fatalf("timeout, length=%v, maxSize=%v", len(datas), maxSize)
+			datasMutex.RUnlock()
 		default:
+			datasMutex.Lock()
 			if len(datas) >= maxSize {
 				sort.Slice(datas, func(i, j int) bool {
 					return bytes.Compare(datas[i], datas[j]) < 0
@@ -151,11 +157,14 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 
 				for i := 0; i < maxSize; i++ {
 					if !bytes.Equal(datas[i], []byte{byte(i)}) {
+						datasMutex.Unlock()
 						t.Fatal("expected", []byte{byte(i)}, "got", datas[i])
 					}
 				}
+				datasMutex.Unlock()
 				return
 			}
+			datasMutex.Unlock()
 		}
 	}
 }
@@ -167,18 +176,21 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 		t.Fatal(err)
 	}
 
-	var mutex sync.Mutex
+	var mutex sync.RWMutex
 	currFailures := 0
 	handleSucceeded := false
 	q.Subscribe(func(msg Message[[]byte]) error {
 		if currFailures <= maxFailures {
 			mutex.Lock()
-			defer mutex.Unlock()
 			currFailures++
+			mutex.Unlock()
 			return errors.New("test max failures")
 		}
 
+		mutex.Lock()
 		handleSucceeded = true
+		mutex.Unlock()
+
 		return nil
 	})
 
@@ -189,9 +201,12 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 
 	time.Sleep(1 * time.Second)
 
+	mutex.RLock()
 	if currFailures != maxFailures+1 {
+		mutex.RUnlock()
 		t.Fatal("expected", maxFailures, "got", currFailures)
 	}
+	mutex.RUnlock()
 
 	if q.IsDLQSupported() {
 		dlq, err := q.DLQ()
@@ -230,7 +245,9 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 		time.Sleep(1 * time.Second)
 	}
 
+	mutex.RLock()
 	assert.Equal(t, true, handleSucceeded)
+	mutex.RUnlock()
 }
 
 func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
@@ -278,10 +295,10 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 
 	for i, tt := range testcases {
 		t.Run(fmt.Sprintf("#case%d", i), func(t *testing.T) {
-			var mutex sync.Mutex
+			var mutex sync.RWMutex
 			allData := make(map[string]int)
 
-			var mutex2 sync.Mutex
+			var mutex2 sync.RWMutex
 			allData2 := make(map[string]int)
 
 			isSubscribeErrReturned := make(map[string]bool)
@@ -350,9 +367,12 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 				}
 			}
 
-			time.Sleep(2 * time.Second)
+			time.Sleep(3 * time.Second)
 
 			for _, d := range tt.data {
+				mutex.RLock()
+				defer mutex.RUnlock()
+
 				if allData[d.Data] < 1 {
 					t.Fatalf("expected %v to be included, allData=%v", d.Data, allData)
 				}
@@ -360,11 +380,14 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 					t.Fatalf("expected %v to be included once, count=%v", d.Data, allData[d.Data])
 				}
 
+				mutex2.RLock()
+
 				if d.Err != "" {
 					assert.Equal(t, 2, allData2[d.Data])
 				} else {
 					assert.Equal(t, 1, allData2[d.Data])
 				}
+				mutex2.RUnlock()
 			}
 		})
 	}

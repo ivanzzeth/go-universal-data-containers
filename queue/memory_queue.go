@@ -207,10 +207,13 @@ Loop:
 		case <-q.exitChannel:
 			break Loop
 		default:
+			q.locker.Lock(context.Background())
 			if q.callbacks == nil {
+				q.locker.Unlock(context.Background())
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}
+			q.locker.Unlock(context.Background())
 
 			msg, err := q.Dequeue(context.TODO())
 			if err != nil {

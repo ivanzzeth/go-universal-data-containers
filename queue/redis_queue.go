@@ -186,7 +186,11 @@ Loop:
 		case <-q.exitChannel:
 			break Loop
 		default:
-			if q.callbacks == nil {
+			q.locker.Lock(context.Background())
+			callbacks := q.callbacks
+			q.locker.Unlock(context.Background())
+
+			if callbacks == nil {
 				time.Sleep(100 * time.Millisecond)
 				continue
 			}

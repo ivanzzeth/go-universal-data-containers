@@ -95,6 +95,9 @@ func (q *BaseQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 }
 
 func (q *BaseQueue[T]) Subscribe(cb Handler[T]) {
+	q.locker.Lock(context.Background())
+	defer q.locker.Unlock(context.Background())
+
 	q.callbacks = append(q.callbacks, cb)
 }
 
@@ -102,7 +105,11 @@ func (q *BaseQueue[T]) TriggerCallbacks(msg Message[T]) {
 	q.msgBuffer <- struct{}{}
 
 	go func() {
-		for _, cb := range q.callbacks {
+		q.locker.Lock(context.Background())
+		callbacks := q.callbacks
+		q.locker.Unlock(context.Background())
+
+		for _, cb := range callbacks {
 			cb(msg)
 		}
 
