@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/metrics"
@@ -29,15 +30,15 @@ func (s StorageWithMetrics) StorageName() string {
 	return s.storage.StorageName()
 }
 
-func (s StorageWithMetrics) Lock() {
-	s.storage.Lock()
+func (s StorageWithMetrics) Lock(ctx context.Context) error {
+	return s.storage.Lock(ctx)
 }
 
-func (s StorageWithMetrics) Unlock() {
-	s.storage.Unlock()
+func (s StorageWithMetrics) Unlock(ctx context.Context) error {
+	return s.storage.Unlock(ctx)
 }
 
-func (s StorageWithMetrics) LoadState(name string, id string) (state State, err error) {
+func (s StorageWithMetrics) LoadState(ctx context.Context, name string, id string) (state State, err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),
 		string(metrics.StateStorageOperationLoadState),
@@ -58,10 +59,10 @@ func (s StorageWithMetrics) LoadState(name string, id string) (state State, err 
 		}
 	}()
 
-	return s.storage.LoadState(name, id)
+	return s.storage.LoadState(ctx, name, id)
 }
 
-func (s StorageWithMetrics) LoadAllStates() (state []State, err error) {
+func (s StorageWithMetrics) LoadAllStates(ctx context.Context) (state []State, err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),
 		string(metrics.StateStorageOperationLoadAllStates),
@@ -82,10 +83,10 @@ func (s StorageWithMetrics) LoadAllStates() (state []State, err error) {
 		}
 	}()
 
-	return s.storage.LoadAllStates()
+	return s.storage.LoadAllStates(ctx)
 }
 
-func (s StorageWithMetrics) SaveStates(states ...State) (err error) {
+func (s StorageWithMetrics) SaveStates(ctx context.Context, states ...State) (err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),
 		string(metrics.StateStorageOperationSaveStates),
@@ -106,10 +107,10 @@ func (s StorageWithMetrics) SaveStates(states ...State) (err error) {
 		}
 	}()
 
-	return s.storage.SaveStates(states...)
+	return s.storage.SaveStates(ctx, states...)
 }
 
-func (s StorageWithMetrics) ClearStates(states ...State) (err error) {
+func (s StorageWithMetrics) ClearStates(ctx context.Context, states ...State) (err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),
 		string(metrics.StateStorageOperationClearStates),
@@ -130,10 +131,10 @@ func (s StorageWithMetrics) ClearStates(states ...State) (err error) {
 		}
 	}()
 
-	return s.storage.ClearStates(states...)
+	return s.storage.ClearStates(ctx, states...)
 }
 
-func (s StorageWithMetrics) ClearAllStates() (err error) {
+func (s StorageWithMetrics) ClearAllStates(ctx context.Context) (err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),
 		string(metrics.StateStorageOperationClearAllStates),
@@ -154,10 +155,10 @@ func (s StorageWithMetrics) ClearAllStates() (err error) {
 		}
 	}()
 
-	return s.storage.ClearAllStates()
+	return s.storage.ClearAllStates(ctx)
 }
 
-func (s StorageWithMetrics) GetStateIDs(name string) (ids []string, err error) {
+func (s StorageWithMetrics) GetStateIDs(ctx context.Context, name string) (ids []string, err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),
 		string(metrics.StateStorageOperationGetStateIDs),
@@ -178,10 +179,10 @@ func (s StorageWithMetrics) GetStateIDs(name string) (ids []string, err error) {
 		}
 	}()
 
-	return s.storage.GetStateIDs(name)
+	return s.storage.GetStateIDs(ctx, name)
 }
 
-func (s StorageWithMetrics) GetStateNames() (names []string, err error) {
+func (s StorageWithMetrics) GetStateNames(ctx context.Context) (names []string, err error) {
 	metrics.MetricStateStorageOperationTotal.WithLabelValues(
 		s.storage.StorageType(),
 		string(metrics.StateStorageOperationGetStateNames),
@@ -202,7 +203,7 @@ func (s StorageWithMetrics) GetStateNames() (names []string, err error) {
 		}
 	}()
 
-	return s.storage.GetStateNames()
+	return s.storage.GetStateNames(ctx)
 }
 
 func (s StorageWithMetrics) SetStorageForSnapshot(storage Storage) {
@@ -213,28 +214,28 @@ func (s StorageWithMetrics) GetStorageForSnapshot() (storage Storage) {
 	return s.snapshot.GetStorageForSnapshot()
 }
 
-func (s StorageWithMetrics) SnapshotStates() (snapshotID string, err error) {
-	return s.snapshot.SnapshotStates()
+func (s StorageWithMetrics) SnapshotStates(ctx context.Context) (snapshotID string, err error) {
+	return s.snapshot.SnapshotStates(ctx)
 }
 
-func (s StorageWithMetrics) RevertStatesToSnapshot(snapshotID string) (err error) {
-	return s.snapshot.RevertStatesToSnapshot(snapshotID)
+func (s StorageWithMetrics) RevertStatesToSnapshot(ctx context.Context, snapshotID string) (err error) {
+	return s.snapshot.RevertStatesToSnapshot(ctx, snapshotID)
 }
 
-func (s StorageWithMetrics) GetSnapshot(snapshotID string) (storage Storage, err error) {
-	return s.snapshot.GetSnapshot(snapshotID)
+func (s StorageWithMetrics) GetSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
+	return s.snapshot.GetSnapshot(ctx, snapshotID)
 }
 
-func (s StorageWithMetrics) GetSnapshotIDs() (snapshotIDs []string, err error) {
-	return s.snapshot.GetSnapshotIDs()
+func (s StorageWithMetrics) GetSnapshotIDs(ctx context.Context) (snapshotIDs []string, err error) {
+	return s.snapshot.GetSnapshotIDs(ctx)
 }
 
-func (s StorageWithMetrics) DeleteSnapshot(snapshotID string) (err error) {
-	return s.snapshot.DeleteSnapshot(snapshotID)
+func (s StorageWithMetrics) DeleteSnapshot(ctx context.Context, snapshotID string) (err error) {
+	return s.snapshot.DeleteSnapshot(ctx, snapshotID)
 }
 
-func (s StorageWithMetrics) ClearSnapshots() (err error) {
-	return s.snapshot.ClearSnapshots()
+func (s StorageWithMetrics) ClearSnapshots(ctx context.Context) (err error) {
+	return s.snapshot.ClearSnapshots(ctx)
 }
 
 type StorageSnapshotWithMetrics struct {
@@ -255,7 +256,7 @@ func (s StorageSnapshotWithMetrics) GetStorageForSnapshot() (storage Storage) {
 	return s.snapshot.GetStorageForSnapshot()
 }
 
-func (s StorageSnapshotWithMetrics) SnapshotStates() (snapshotID string, err error) {
+func (s StorageSnapshotWithMetrics) SnapshotStates(ctx context.Context) (snapshotID string, err error) {
 	metrics.MetricStateSnapshotOperationTotal.WithLabelValues(
 		s.snapshot.GetStorageForSnapshot().StorageType(),
 		string(metrics.StateSnapshotOperationSnapshotStates),
@@ -276,10 +277,10 @@ func (s StorageSnapshotWithMetrics) SnapshotStates() (snapshotID string, err err
 		}
 	}()
 
-	return s.snapshot.SnapshotStates()
+	return s.snapshot.SnapshotStates(ctx)
 }
 
-func (s StorageSnapshotWithMetrics) RevertStatesToSnapshot(snapshotID string) (err error) {
+func (s StorageSnapshotWithMetrics) RevertStatesToSnapshot(ctx context.Context, snapshotID string) (err error) {
 	metrics.MetricStateSnapshotOperationTotal.WithLabelValues(
 		s.snapshot.GetStorageForSnapshot().StorageType(),
 		string(metrics.StateSnapshotOperationRevertStatesToSnapshot),
@@ -300,10 +301,10 @@ func (s StorageSnapshotWithMetrics) RevertStatesToSnapshot(snapshotID string) (e
 		}
 	}()
 
-	return s.snapshot.RevertStatesToSnapshot(snapshotID)
+	return s.snapshot.RevertStatesToSnapshot(ctx, snapshotID)
 }
 
-func (s StorageSnapshotWithMetrics) GetSnapshot(snapshotID string) (storage Storage, err error) {
+func (s StorageSnapshotWithMetrics) GetSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
 	metrics.MetricStateSnapshotOperationTotal.WithLabelValues(
 		s.snapshot.GetStorageForSnapshot().StorageType(),
 		string(metrics.StateSnapshotOperationGetSnapshot),
@@ -324,10 +325,10 @@ func (s StorageSnapshotWithMetrics) GetSnapshot(snapshotID string) (storage Stor
 		}
 	}()
 
-	return s.snapshot.GetSnapshot(snapshotID)
+	return s.snapshot.GetSnapshot(ctx, snapshotID)
 }
 
-func (s StorageSnapshotWithMetrics) GetSnapshotIDs() (snapshotIDs []string, err error) {
+func (s StorageSnapshotWithMetrics) GetSnapshotIDs(ctx context.Context) (snapshotIDs []string, err error) {
 	metrics.MetricStateSnapshotOperationTotal.WithLabelValues(
 		s.snapshot.GetStorageForSnapshot().StorageType(),
 		string(metrics.StateSnapshotOperationGetSnapshotIDs),
@@ -348,10 +349,10 @@ func (s StorageSnapshotWithMetrics) GetSnapshotIDs() (snapshotIDs []string, err 
 		}
 	}()
 
-	return s.snapshot.GetSnapshotIDs()
+	return s.snapshot.GetSnapshotIDs(ctx)
 }
 
-func (s StorageSnapshotWithMetrics) DeleteSnapshot(snapshotID string) (err error) {
+func (s StorageSnapshotWithMetrics) DeleteSnapshot(ctx context.Context, snapshotID string) (err error) {
 	metrics.MetricStateSnapshotOperationTotal.WithLabelValues(
 		s.snapshot.GetStorageForSnapshot().StorageType(),
 		string(metrics.StateSnapshotOperationDeleteSnapshot),
@@ -372,10 +373,10 @@ func (s StorageSnapshotWithMetrics) DeleteSnapshot(snapshotID string) (err error
 		}
 	}()
 
-	return s.snapshot.DeleteSnapshot(snapshotID)
+	return s.snapshot.DeleteSnapshot(ctx, snapshotID)
 }
 
-func (s StorageSnapshotWithMetrics) ClearSnapshots() (err error) {
+func (s StorageSnapshotWithMetrics) ClearSnapshots(ctx context.Context) (err error) {
 	metrics.MetricStateSnapshotOperationTotal.WithLabelValues(
 		s.snapshot.GetStorageForSnapshot().StorageType(),
 		string(metrics.StateSnapshotOperationClearSnapshots),
@@ -396,5 +397,5 @@ func (s StorageSnapshotWithMetrics) ClearSnapshots() (err error) {
 		}
 	}()
 
-	return s.snapshot.ClearSnapshots()
+	return s.snapshot.ClearSnapshots(ctx)
 }

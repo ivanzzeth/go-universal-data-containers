@@ -2,28 +2,33 @@ package queue
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
+	"github.com/stretchr/testify/assert"
 )
 
 var (
-	queueOptions = Config{
-		MaxSize:           255,
-		MaxHandleFailures: 3,
+	queueOptions = func(c *Config) {
+		c.LockerGenerator = locker.NewMemoryLockerGenerator()
+		c.MaxSize = 255
+		c.MaxHandleFailures = 3
 
-		PollInterval: DefaultPollInterval,
-		MaxRetries:   DefaultMaxRetries,
+		c.PollInterval = DefaultPollInterval
+		c.MaxRetries = DefaultMaxRetries
 
-		ConsumerCount: 3,
+		c.ConsumerCount = 3
 
-		Message:            DefaultOptions.Message,
-		MessageIDGenerator: DefaultOptions.MessageIDGenerator,
+		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
 	}
 )
 
@@ -33,17 +38,17 @@ func init() {
 	// log.SetDefault(logger)
 }
 
-func SpecTestQueueSequencial(t *testing.T, q Queue) {
+func SpecTestQueueSequencial(t *testing.T, q Queue[[]byte]) {
 	maxSize := getMaxSize(q)
 	for i := 0; i < maxSize; i++ {
-		err := q.Enqueue([]byte{byte(i)})
+		err := q.Enqueue(context.Background(), []byte{byte(i)})
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
 
 	if q.MaxSize() != UnlimitedSize {
-		err := q.Enqueue([]byte{byte(maxSize + 1)})
+		err := q.Enqueue(context.Background(), []byte{byte(maxSize + 1)})
 		if !errors.Is(err, ErrQueueFull) {
 			t.Fatal("expected", ErrQueueFull, "got", err)
 		}
@@ -51,7 +56,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 
 	allData := [][]byte{}
 	for i := 0; i < maxSize; i++ {
-		data, err := q.Dequeue()
+		data, err := q.Dequeue(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -69,7 +74,7 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 		}
 	}
 
-	data, err := q.Dequeue()
+	data, err := q.Dequeue(context.Background())
 	if !errors.Is(err, ErrQueueEmpty) {
 		t.Fatal("expected", ErrQueueEmpty, "got", err)
 	}
@@ -80,26 +85,38 @@ func SpecTestQueueSequencial(t *testing.T, q Queue) {
 
 	q.Close()
 
-	err = q.Enqueue([]byte{byte(0)})
+	err = q.Enqueue(context.Background(), []byte{byte(0)})
 	if !errors.Is(err, ErrQueueClosed) {
 		t.Fatal("expected", ErrQueueClosed, "got", err)
 	}
 }
 
-func SpecTestQueueConcurrent(t *testing.T, q Queue) {
+func SpecTestQueueConcurrent(t *testing.T, q Queue[[]byte]) {
 	maxSize := getMaxSize(q)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	datasMutex := sync.RWMutex{}
 	datas := [][]byte{}
 	go func() {
 		for {
-			data, err := q.Dequeue()
-			if err != nil {
-				time.Sleep(100 * time.Millisecond)
-				t.Logf("Dequeue failed: %v", err)
-				continue
-			}
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				data, err := q.Dequeue(context.Background())
+				if err != nil {
+					time.Sleep(100 * time.Millisecond)
+					// Commented out to avoid panic after the SpecTestQueueConcurrent has completed.
+					// t.Logf("Dequeue failed: %v", err)
+					continue
+				}
 
-			datas = append(datas, data.Data())
+				datasMutex.Lock()
+				datas = append(datas, data.Data())
+				datasMutex.Unlock()
+			}
 		}
 	}()
 
@@ -109,7 +126,7 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := q.Enqueue([]byte{byte(i)})
+			err := q.Enqueue(context.Background(), []byte{byte(i)})
 			errsChan <- err
 		}()
 	}
@@ -123,13 +140,16 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 		}
 	}
 
-	timeout := time.NewTimer(2 * time.Second)
+	timeout := time.NewTimer(1 * time.Second)
 	for {
 		time.Sleep(10 * time.Millisecond)
 		select {
 		case <-timeout.C:
+			datasMutex.RLock()
 			t.Fatalf("timeout, length=%v, maxSize=%v", len(datas), maxSize)
+			datasMutex.RUnlock()
 		default:
+			datasMutex.Lock()
 			if len(datas) >= maxSize {
 				sort.Slice(datas, func(i, j int) bool {
 					return bytes.Compare(datas[i], datas[j]) < 0
@@ -137,48 +157,100 @@ func SpecTestQueueConcurrent(t *testing.T, q Queue) {
 
 				for i := 0; i < maxSize; i++ {
 					if !bytes.Equal(datas[i], []byte{byte(i)}) {
+						datasMutex.Unlock()
 						t.Fatal("expected", []byte{byte(i)}, "got", datas[i])
 					}
 				}
+				datasMutex.Unlock()
 				return
 			}
+			datasMutex.Unlock()
 		}
 	}
 }
 
-func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory) {
+func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]byte]) {
 	maxFailures := 3
-	q, err := f.GetOrCreate("queue", WithMaxHandleFailures(maxFailures))
+	q, err := f.GetOrCreateSafe("queue", WithMaxHandleFailures(maxFailures))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var mutex sync.Mutex
+	var mutex sync.RWMutex
 	currFailures := 0
-	q.Subscribe(func(msg Message) error {
-		if currFailures < maxFailures {
+	handleSucceeded := false
+	q.Subscribe(func(msg Message[[]byte]) error {
+		if currFailures <= maxFailures {
 			mutex.Lock()
-			defer mutex.Unlock()
 			currFailures++
+			mutex.Unlock()
 			return errors.New("test max failures")
 		}
+
+		mutex.Lock()
+		handleSucceeded = true
+		mutex.Unlock()
 
 		return nil
 	})
 
-	err = q.Enqueue([]byte(fmt.Sprintf("data")))
+	err = q.Enqueue(context.Background(), []byte(fmt.Sprintf("data")))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	time.Sleep(1 * time.Second)
 
-	if currFailures != maxFailures {
+	mutex.RLock()
+	if currFailures != maxFailures+1 {
+		mutex.RUnlock()
 		t.Fatal("expected", maxFailures, "got", currFailures)
 	}
+	mutex.RUnlock()
+
+	if q.IsDLQSupported() {
+		dlq, err := q.DLQ()
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		msg, err := dlq.Dequeue(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !bytes.Equal(msg.Data(), []byte(fmt.Sprintf("data"))) {
+			t.Fatal("expected", []byte(fmt.Sprintf("data")), "got", msg.Data())
+		}
+
+		// Push back
+		err = dlq.Enqueue(context.Background(), msg.Data())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Then redrive
+		err = dlq.Redrive(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Redrive again when dlq is empty
+		err = dlq.Redrive(context.Background(), 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Wait for msg handling
+		time.Sleep(1 * time.Second)
+	}
+
+	mutex.RLock()
+	assert.Equal(t, true, handleSucceeded)
+	mutex.RUnlock()
 }
 
-func SpecTestQueueSubscribe(t *testing.T, f Factory) {
+func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 	type dataAndErr struct {
 		Data string
 		Err  string
@@ -187,6 +259,11 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 	testcases := []struct {
 		data []dataAndErr
 	}{
+		{
+			data: []dataAndErr{
+				{"data1", ""},
+			},
+		},
 		{
 			data: []dataAndErr{
 				{"data1", ""},
@@ -218,8 +295,12 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 
 	for i, tt := range testcases {
 		t.Run(fmt.Sprintf("#case%d", i), func(t *testing.T) {
-			var mutex sync.Mutex
-			allData := make(map[string]bool)
+			var mutex sync.RWMutex
+			allData := make(map[string]int)
+
+			var mutex2 sync.RWMutex
+			allData2 := make(map[string]int)
+
 			isSubscribeErrReturned := make(map[string]bool)
 
 			q, err := f.GetOrCreate(fmt.Sprintf("test-%d", i))
@@ -228,7 +309,8 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 			}
 			defer q.Close()
 
-			q.Subscribe(func(msg Message) error {
+			// Handler1
+			q.Subscribe(func(msg Message[[]byte]) error {
 				b := msg.Data()
 
 				t.Logf("Subscribe in test: %v", msg)
@@ -250,7 +332,26 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 				}
 
 				t.Logf("Store data: %v", data.Data)
-				allData[data.Data] = true
+				allData[data.Data] += 1
+				return nil
+			})
+
+			// Handler2
+			q.Subscribe(func(msg Message[[]byte]) error {
+				b := msg.Data()
+
+				t.Logf("Subscribe 2 in test: %v", msg)
+				var data dataAndErr
+				err := json.Unmarshal(b, &data)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+				mutex2.Lock()
+				defer mutex2.Unlock()
+
+				allData2[data.Data] += 1
+
 				return nil
 			})
 
@@ -260,24 +361,420 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory) {
 					t.Fatal(err)
 				}
 
-				err = q.Enqueue(data)
+				err = q.Enqueue(context.Background(), data)
 				if err != nil {
 					t.Fatalf("failed to enqueue: %v", err)
 				}
 			}
 
-			time.Sleep(2 * time.Second)
+			time.Sleep(3 * time.Second)
 
 			for _, d := range tt.data {
-				if !allData[d.Data] {
+				mutex.RLock()
+				defer mutex.RUnlock()
+
+				if allData[d.Data] < 1 {
 					t.Fatalf("expected %v to be included, allData=%v", d.Data, allData)
 				}
+				if allData[d.Data] > 1 {
+					t.Fatalf("expected %v to be included once, count=%v", d.Data, allData[d.Data])
+				}
+
+				mutex2.RLock()
+
+				if d.Err != "" {
+					assert.Equal(t, 2, allData2[d.Data])
+				} else {
+					assert.Equal(t, 1, allData2[d.Data])
+				}
+				mutex2.RUnlock()
 			}
 		})
 	}
 }
 
-func getMaxSize(q Queue) int {
+func SpecTestQueueSubscribeWithConsumerCount(t *testing.T, f Factory[[]byte]) {
+	// Set up queue with 3 consumers
+
+	q, err := f.GetOrCreate("subscribe-with-consumer-count-test", func(c *Config) {
+		c.ConsumerCount = 3
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Test with multiple consumers using ConsumerCount option
+	numMessages := 100
+	receivedMessages := make(map[string]bool)
+	var mutex sync.Mutex
+
+	// Subscribe and process messages
+	go func() {
+		q.Subscribe(func(msg Message[[]byte]) error {
+			mutex.Lock()
+			receivedMessages[string(msg.Data())] = true
+			mutex.Unlock()
+			return nil
+		})
+	}()
+
+	// Enqueue test messages
+	for i := 0; i < numMessages; i++ {
+		msg := fmt.Sprintf("msg-%d", i)
+		err := q.Enqueue(context.Background(), []byte(msg))
+		if err != nil {
+			t.Fatalf("failed to enqueue message: %v", err)
+		}
+	}
+
+	// Wait some time for processing
+	time.Sleep(2 * time.Second)
+
+	// Verify all messages were received
+	mutex.Lock()
+	receivedCount := len(receivedMessages)
+	mutex.Unlock()
+
+	if receivedCount != numMessages {
+		t.Errorf("expected %d messages, got %d", numMessages, receivedCount)
+	}
+
+	// Verify each message was received exactly once
+	for i := 0; i < numMessages; i++ {
+		msg := fmt.Sprintf("msg-%d", i)
+		mutex.Lock()
+		if !receivedMessages[msg] {
+			t.Errorf("message not received: %s", msg)
+		}
+		mutex.Unlock()
+	}
+}
+
+func SpecTestQueueTimeout(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("timeout-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Create a context with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	// Dequeue from empty queue should fail with timeout
+	_, err = q.BDequeue(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected DeadlineExceeded error, got: %v", err)
+	}
+}
+
+func SpecTestQueueStressTest(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("stress-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Configure stress test parameters
+	numProducers := 10
+	numConsumers := 5
+	messagesPerProducer := 100
+	totalMessages := numProducers * messagesPerProducer
+
+	// Track results
+	var receivedCount int32
+	receivedMessages := make(map[string]bool)
+	var mutex sync.Mutex
+
+	// Start consumers
+	var wg sync.WaitGroup
+	for i := 0; i < numConsumers; i++ {
+		wg.Add(1)
+		go func(consumerID int) {
+			defer wg.Done()
+			for {
+				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				msg, err := q.BDequeue(ctx)
+				cancel()
+
+				if err != nil {
+					if errors.Is(err, context.DeadlineExceeded) {
+						// Check if all messages have been processed
+						if int(receivedCount) >= totalMessages {
+							return
+						}
+						continue
+					}
+					t.Errorf("consumer %d dequeue error: %v", consumerID, err)
+					return
+				}
+
+				mutex.Lock()
+				receivedMessages[string(msg.Data())] = true
+				mutex.Unlock()
+				atomic.AddInt32(&receivedCount, 1)
+			}
+		}(i)
+	}
+
+	// Start producers
+	for i := 0; i < numProducers; i++ {
+		wg.Add(1)
+		go func(producerID int) {
+			defer wg.Done()
+			for j := 0; j < messagesPerProducer; j++ {
+				data := []byte(fmt.Sprintf("producer-%d-msg-%d", producerID, j))
+				err := q.Enqueue(context.Background(), data)
+				if err != nil {
+					t.Errorf("producer %d enqueue error: %v", producerID, err)
+					return
+				}
+			}
+		}(i)
+	}
+
+	// Wait for all producers and consumers to complete
+	wg.Wait()
+
+	// Verify results
+	if int(receivedCount) != totalMessages {
+		t.Errorf("expected %d messages, got %d", totalMessages, receivedCount)
+	}
+
+	// Verify all messages were processed correctly
+	mutex.Lock()
+	defer mutex.Unlock()
+	for i := 0; i < numProducers; i++ {
+		for j := 0; j < messagesPerProducer; j++ {
+			expected := fmt.Sprintf("producer-%d-msg-%d", i, j)
+			if !receivedMessages[expected] {
+				t.Errorf("missing message: %s", expected)
+			}
+		}
+	}
+}
+
+func SpecTestQueueErrorHandling(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("error-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Test nil data
+	err = q.Enqueue(context.Background(), nil)
+	assert.Equal(t, nil, err)
+
+	// Test operations after queue closure
+	q.Close()
+	err = q.Enqueue(context.Background(), []byte("test"))
+	if !errors.Is(err, ErrQueueClosed) {
+		t.Errorf("expected ErrQueueClosed, got: %v", err)
+	}
+}
+
+func SpecTestQueueBlockingOperations(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("blocking-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Test blocking dequeue on empty queue
+	dequeueCompleted := make(chan struct{})
+	go func() {
+		msg, err := q.BDequeue(context.Background())
+		if err != nil {
+			t.Errorf("blocking dequeue error: %v", err)
+			return
+		}
+		if !bytes.Equal(msg.Data(), []byte("test-data")) {
+			t.Errorf("expected 'test-data', got %s", string(msg.Data()))
+		}
+		dequeueCompleted <- struct{}{}
+	}()
+
+	// Wait a bit to ensure dequeue is blocked
+	time.Sleep(100 * time.Millisecond)
+
+	// Now enqueue data, should unblock the dequeue
+	err = q.Enqueue(context.Background(), []byte("test-data"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Wait for dequeue to complete
+	select {
+	case <-dequeueCompleted:
+		// Expected behavior
+	case <-time.After(1 * time.Second):
+		t.Error("blocking dequeue did not complete after data was available")
+	}
+
+	// Test blocking enqueue on full queue
+	maxSize := q.MaxSize()
+	if maxSize != UnlimitedSize {
+		// Fill the queue
+		for i := 0; i < maxSize; i++ {
+			err := q.Enqueue(context.Background(), []byte{byte(i)})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		enqueueCompleted := make(chan struct{})
+		go func() {
+			err := q.BEnqueue(context.Background(), []byte("blocked-data"))
+			if err != nil {
+				t.Errorf("blocking enqueue error: %v", err)
+				return
+			}
+			enqueueCompleted <- struct{}{}
+		}()
+
+		// Wait a bit to ensure enqueue is blocked
+		time.Sleep(100 * time.Millisecond)
+
+		// Dequeue one item to make space
+		_, err = q.Dequeue(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		// Wait for enqueue to complete
+		select {
+		case <-enqueueCompleted:
+			// Expected behavior
+		case <-time.After(1 * time.Second):
+			t.Error("blocking enqueue did not complete after space was available")
+		}
+	}
+}
+
+func SpecTestQueueBlockingWithContext(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("blocking-context-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	// Test blocking dequeue with cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	dequeueErr := make(chan error)
+	go func() {
+		_, err := q.BDequeue(ctx)
+		dequeueErr <- err
+	}()
+
+	// Wait a bit then cancel context
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	// Check if dequeue was cancelled
+	select {
+	case err := <-dequeueErr:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("expected context.Canceled error, got: %v", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("blocking dequeue was not cancelled by context")
+	}
+
+	// Test blocking enqueue with timeout context
+	if q.MaxSize() != UnlimitedSize {
+		// Fill the queue
+		for i := 0; i < q.MaxSize(); i++ {
+			err := q.Enqueue(context.Background(), []byte{byte(i)})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		enqueueErr := make(chan error)
+		go func() {
+			err := q.BEnqueue(ctx, []byte("test"))
+			enqueueErr <- err
+		}()
+
+		// Check if enqueue times out
+		select {
+		case err := <-enqueueErr:
+			if !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("expected context.DeadlineExceeded error, got: %v", err)
+			}
+		case <-time.After(1 * time.Second):
+			t.Error("blocking enqueue did not timeout as expected")
+		}
+	}
+}
+
+func SpecTestQueueBlockingMultipleConsumers(t *testing.T, f Factory[[]byte]) {
+	q, err := f.GetOrCreate("blocking-multi-consumer-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+
+	numConsumers := 3
+	numMessages := 5
+	receivedMessages := make(chan []byte, numConsumers*numMessages)
+
+	// Start multiple consumers
+	var wg sync.WaitGroup
+	for i := 0; i < numConsumers; i++ {
+		wg.Add(1)
+		go func(consumerID int) {
+			defer wg.Done()
+			for j := 0; j < numMessages; j++ {
+				msg, err := q.BDequeue(context.Background())
+				if err != nil {
+					t.Errorf("consumer %d dequeue error: %v", consumerID, err)
+					return
+				}
+				receivedMessages <- msg.Data()
+			}
+		}(i)
+	}
+
+	// Wait a bit to ensure consumers are waiting
+	time.Sleep(100 * time.Millisecond)
+
+	// Send messages
+	totalMessages := numConsumers * numMessages
+	for i := 0; i < totalMessages; i++ {
+		err := q.BEnqueue(context.Background(), []byte(fmt.Sprintf("msg-%d", i)))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Wait for all consumers to finish
+	wg.Wait()
+	close(receivedMessages)
+
+	// Verify all messages were received
+	received := make(map[string]bool)
+	for msg := range receivedMessages {
+		received[string(msg)] = true
+	}
+
+	if len(received) != totalMessages {
+		t.Errorf("expected %d unique messages, got %d", totalMessages, len(received))
+	}
+
+	for i := 0; i < totalMessages; i++ {
+		expected := fmt.Sprintf("msg-%d", i)
+		if !received[expected] {
+			t.Errorf("missing message: %s", expected)
+		}
+	}
+}
+
+func getMaxSize(q Queue[[]byte]) int {
 	maxSize := q.MaxSize()
 	if maxSize == UnlimitedSize {
 		maxSize = 10

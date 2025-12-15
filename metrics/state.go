@@ -49,7 +49,7 @@ var (
 	}, []string{stateStorageType, stateStorageOperation})
 
 	MetricStateStorageOperationDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: namespaceQueue,
+		Namespace: namespaceState,
 		Name:      "storage_operation_duration_seconds",
 		Help:      "Duration of handling for a storage operation.",
 		Buckets: []float64{
@@ -85,7 +85,7 @@ var (
 	}, []string{stateStorageType, stateSnapshotOperation})
 
 	MetricStateSnapshotOperationDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: namespaceQueue,
+		Namespace: namespaceState,
 		Name:      "snapshot_operation_duration_seconds",
 		Help:      "Duration of handling for a snapshot operation.",
 		Buckets: []float64{

@@ -1,9 +1,13 @@
 package state
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -11,25 +15,50 @@ var (
 )
 
 type CacheAndPersistFinalizer struct {
-	ticker <-chan time.Time
+	ctx       context.Context
+	cancelCtx context.CancelFunc
 
-	registry Registry
+	ticker   <-chan time.Time
+	interval time.Duration
+
+	registry        Registry
+	lockerGenerator locker.SyncLockerGenerator
+	name            string
+
 	StorageSnapshot
 	cache               Storage
 	persist             Storage
 	autoFinalizeEnabled atomic.Bool
-	exitChannel         chan struct{}
 }
 
-func NewCacheAndPersistFinalizer(ticker <-chan time.Time, registry Registry, cache Storage, persist Storage) *CacheAndPersistFinalizer {
+func NewCacheAndPersistFinalizer(interval time.Duration, registry Registry, lockerGenerator locker.SyncLockerGenerator, cache Storage, persist Storage, name string) *CacheAndPersistFinalizer {
+	ticker := time.NewTicker(interval).C
+
+	if name == "" {
+		name = "default"
+	}
+
+	err := registry.RegisterState(MustNewFinalizeState(lockerGenerator, name, name))
+	if err != nil {
+		panic(fmt.Errorf("failed to register finalize state: %v", err))
+	}
+
+	ctx, cancelCtx := context.WithCancel(context.Background())
+
 	f := &CacheAndPersistFinalizer{
-		ticker:          ticker,
-		registry:        registry,
+		ctx:       ctx,
+		cancelCtx: cancelCtx,
+
+		ticker:   ticker,
+		interval: interval,
+
+		registry: registry,
+		name:     name,
+
+		lockerGenerator: lockerGenerator,
 		StorageSnapshot: cache,
 		cache:           cache,
 		persist:         persist,
-
-		exitChannel: make(chan struct{}),
 	}
 
 	go f.run()
@@ -37,18 +66,47 @@ func NewCacheAndPersistFinalizer(ticker <-chan time.Time, registry Registry, cac
 	return f
 }
 
-func (s *CacheAndPersistFinalizer) Close() {
-	close(s.exitChannel)
+type FinalizeState struct {
+	GormModel
+	BaseState
+	Name             string
+	LastFinalizeTime time.Time
 }
 
-func (s *CacheAndPersistFinalizer) LoadState(name string, id string) (State, error) {
-	state, err := s.cache.LoadState(name, id)
+func MustNewFinalizeState(lockerGenerator locker.SyncLockerGenerator, partition, name string) *FinalizeState {
+	f := &FinalizeState{GormModel: GormModel{Partition: partition}, Name: name}
+
+	state, err := NewBaseState(lockerGenerator, "finalize_states", NewBase64IDMarshaler("_"), f.StateIDComponents())
+	if err != nil {
+		panic(fmt.Errorf("failed to create base state: %v", err))
+	}
+
+	f.BaseState = *state
+
+	err = f.FillID(f)
+	if err != nil {
+		panic(fmt.Errorf("invalid stateID: %v", err))
+	}
+
+	return f
+}
+
+func (u *FinalizeState) StateIDComponents() StateIDComponents {
+	return []any{&u.Partition, &u.Name}
+}
+
+func (s *CacheAndPersistFinalizer) Close() {
+	s.cancelCtx()
+}
+
+func (s *CacheAndPersistFinalizer) LoadState(ctx context.Context, name string, id string) (State, error) {
+	state, err := s.cache.LoadState(ctx, name, id)
 	if err != nil {
 		if !errors.Is(err, ErrStateNotFound) {
 			return nil, err
 		}
 
-		state, err = s.persist.LoadState(name, id)
+		state, err = s.persist.LoadState(ctx, name, id)
 		if err != nil {
 			if !errors.Is(err, ErrStateNotFound) {
 				return nil, err
@@ -66,22 +124,29 @@ func (s *CacheAndPersistFinalizer) LoadState(name string, id string) (State, err
 	return state, nil
 }
 
-func (s *CacheAndPersistFinalizer) SaveState(state State) error {
-	return s.cache.SaveStates(state)
+func (s *CacheAndPersistFinalizer) SaveState(ctx context.Context, state State) error {
+	return s.cache.SaveStates(ctx, state)
 }
 
-func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) error {
-	snapshot, err := s.StorageSnapshot.GetSnapshot(snapshotID)
+func (s *CacheAndPersistFinalizer) SaveStates(ctx context.Context, states ...State) error {
+	return s.cache.SaveStates(ctx, states...)
+}
+
+func (s *CacheAndPersistFinalizer) ClearCacheStates(ctx context.Context, states ...State) error {
+	return s.cache.ClearStates(ctx, states...)
+}
+
+func (s *CacheAndPersistFinalizer) ClearPersistStates(ctx context.Context, states ...State) error {
+	return s.persist.ClearStates(ctx, states...)
+}
+
+func (s *CacheAndPersistFinalizer) ClearStates(ctx context.Context, states ...State) error {
+	err := s.ClearCacheStates(ctx, states...)
 	if err != nil {
 		return err
 	}
 
-	allStates, err := snapshot.LoadAllStates()
-	if err != nil {
-		return err
-	}
-
-	err = s.persist.SaveStates(allStates...)
+	err = s.ClearPersistStates(ctx, states...)
 	if err != nil {
 		return err
 	}
@@ -89,21 +154,100 @@ func (s *CacheAndPersistFinalizer) FinalizeSnapshot(snapshotID string) error {
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() error {
-	states, err := s.cache.LoadAllStates()
+func (s *CacheAndPersistFinalizer) FinalizeSnapshot(ctx context.Context, snapshotID string) (err error) {
+	stateContainer := NewStateContainerWithFinalizer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
+
+	finalizeState, err := stateContainer.GetAndLock(ctx)
+
+	if err != nil {
+		return
+	}
+	defer finalizeState.Unlock(ctx)
+
+	// Double check lastTime
+	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
+		return
+	}
+
+	finalizeState.LastFinalizeTime = time.Now()
+
+	err = s.finalizeSnapshot(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 
-	err = s.persist.SaveStates(states...)
+	err = stateContainer.Save(ctx)
+	if err != nil {
+		return
+	}
+
+	return nil
+}
+
+func (s *CacheAndPersistFinalizer) finalizeSnapshot(ctx context.Context, snapshotID string) error {
+	snapshot, err := s.StorageSnapshot.GetSnapshot(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 
-	// err = s.ClearAllCachedStates()
-	// if err != nil {
-	// 	return err
-	// }
+	allStates, err := snapshot.LoadAllStates(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = s.persist.SaveStates(ctx, allStates...)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates(ctx context.Context) (err error) {
+	stateContainer := NewStateContainerWithFinalizer(s, MustNewFinalizeState(s.lockerGenerator, s.name, s.name))
+
+	finalizeState, err := stateContainer.GetAndLock(ctx)
+
+	if err != nil {
+		return
+	}
+	defer finalizeState.Unlock(ctx)
+
+	// Double check lastTime
+	if time.Since(finalizeState.LastFinalizeTime) <= s.interval {
+		return
+	}
+
+	finalizeState.LastFinalizeTime = time.Now()
+
+	err = s.finalizeAllCachedStates(ctx)
+	if err != nil {
+		return
+	}
+
+	err = stateContainer.Save(ctx)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+func (s *CacheAndPersistFinalizer) finalizeAllCachedStates(ctx context.Context) error {
+	states, err := s.cache.LoadAllStates(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = s.persist.SaveStates(ctx, states...)
+	if err != nil {
+		return err
+	}
+
+	err = s.ClearAllCachedStates(ctx)
+	if err != nil {
+		return err
+	}
 
 	// MUST clear snapshots manully
 	// err = s.cache.ClearSnapshots()
@@ -114,26 +258,38 @@ func (s *CacheAndPersistFinalizer) FinalizeAllCachedStates() error {
 	return nil
 }
 
-func (s *CacheAndPersistFinalizer) ClearAllCachedStates() error {
-	return s.cache.ClearAllStates()
+func (s *CacheAndPersistFinalizer) ClearAllCachedStates(ctx context.Context) error {
+	return s.cache.ClearAllStates(ctx)
 }
 
 func (s *CacheAndPersistFinalizer) EnableAutoFinalizeAllCachedStates(enable bool) {
 	s.autoFinalizeEnabled.Store(enable)
 }
 
+func (s *CacheAndPersistFinalizer) GetAutoFinalizeInterval() time.Duration {
+	return s.interval
+}
+
+func (s *CacheAndPersistFinalizer) GetCacheStorage() Storage {
+	return s.cache
+}
+
+func (s *CacheAndPersistFinalizer) GetPersistStorage() Storage {
+	return s.persist
+}
+
 func (s *CacheAndPersistFinalizer) run() {
 	for {
 		select {
-		case <-s.exitChannel:
+		case <-s.ctx.Done():
 			return
 		case <-s.ticker:
 			if s.autoFinalizeEnabled.Load() {
-				err := s.FinalizeAllCachedStates()
+				err := s.FinalizeAllCachedStates(s.ctx)
 				if err != nil {
 					// TODO: logging
 					// fmt.Printf("FinalizeAllCachedStates failed: %v\n", err)
-					continue
+					return
 				}
 			}
 

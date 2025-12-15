@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func SpecTestMessage(t *testing.T, msg Message) {
+func SpecTestMessage(t *testing.T, msg Message[[]byte]) {
 	testcases := []struct {
 		id       []byte
 		metadata map[string]interface{}
@@ -57,7 +57,7 @@ func SpecTestMessage(t *testing.T, msg Message) {
 				t.Fatal(err)
 			}
 
-			newMsg := reflect.New(reflect.TypeOf(msg).Elem()).Interface().(Message)
+			newMsg := reflect.New(reflect.TypeOf(msg).Elem()).Interface().(Message[[]byte])
 			err = newMsg.Unpack(packed)
 			if err != nil {
 				t.Fatal(err)

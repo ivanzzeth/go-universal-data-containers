@@ -1,7 +1,6 @@
 package state
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -13,16 +12,17 @@ import (
 )
 
 func TestGORMStorage(t *testing.T) {
-	testDb, err := setupDB()
+	testDb, err := setupTestGormDB()
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	registry := NewSimpleRegistry()
-	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
 
-	storage, err := NewGORMStorage(&sync.Mutex{}, testDb, registry, snapshot, "default")
+	storage, err := NewGORMStorage(lockerGenerator, testDb, registry, snapshot, "default")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,25 +57,47 @@ func TestSetGormPrimaryKeyZeroValue(t *testing.T) {
 }
 
 func BenchmarkGORMStorageWith20msLatency(b *testing.B) {
-	testDb, err := setupDB()
+	testDb, err := setupTestGormDB()
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	registry := NewSimpleRegistry()
-	storageFactory := NewGORMStorageFactory(testDb, registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
 
-	storage, err := NewGORMStorage(&sync.Mutex{}, testDb, registry, snapshot, "default")
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+
+	storageFactory := NewGORMStorageFactory(testDb, registry, lockerGenerator, nil)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
+
+	storage, err := NewGORMStorage(lockerGenerator, testDb, registry, snapshot, "default")
 	if err != nil {
 		b.Fatal(err)
 	}
 	storage.setDelay(20 * time.Millisecond)
+
+	// tables, err := testDb.Migrator().GetTables()
+	// if err != nil {
+	// 	b.Fatal(err)
+	// }
+
+	// sqlDB, _ := testDb.DB()
+
+	// for _, table := range tables {
+	// 	res, err := sqlDB.Query(fmt.Sprintf("PRAGMA table_info(%v)", table))
+	// 	if err != nil {
+	// 		b.Fatal(err)
+	// 	}
+
+	// 	b.Logf("table %v: %+v", table, res)
+	// }
+
 	SpecBenchmarkStorage(b, registry, storage)
 }
 
-func setupDB() (*gorm.DB, error) {
-	testDb, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{
+func setupTestGormDB() (*gorm.DB, error) {
+	dialactor := sqlite.Open("file::memory:?cache=private")
+	// dialactor := sqlite.Open("file::memory:?cache=shared")
+	testDb, err := gorm.Open(dialactor, &gorm.Config{
 		// DisableForeignKeyConstraintWhenMigrating: true,
 		Logger: logger.Discard,
 	})

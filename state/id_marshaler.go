@@ -45,6 +45,8 @@ func (c *JsonIDMarshaler) MarshalStateID(fields ...any) (string, error) {
 
 func (c *JsonIDMarshaler) UnmarshalStateID(ID string, fields ...any) error {
 	fieldsStrs := strings.Split(ID, c.separator)
+	// fmt.Printf("UnmarshalStateID, seperator: %v, ID: %v, fieldsStrs: %v, len(fieldsStrs): %v, len(fields): %v\n",
+	// 	c.separator, ID, fieldsStrs, len(fieldsStrs), len(fields))
 	if len(fieldsStrs) != len(fields) {
 		return ErrStateIDAndFieldsMismatch
 	}

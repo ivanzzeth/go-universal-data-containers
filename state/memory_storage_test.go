@@ -1,7 +1,6 @@
 package state
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -10,11 +9,14 @@ import (
 
 func TestMemoryStorage(t *testing.T) {
 	registry := NewSimpleRegistry()
-	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
 
-	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot, "")
-
+	storage, err := NewMemoryStorage(lockerGenerator, registry, snapshot, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	SpecTestStorage(t, registry, storage)
 }
 
@@ -30,10 +32,14 @@ func TestMemoryStorage(t *testing.T) {
 
 func BenchmarkMemoryStorageWith2msLatency(b *testing.B) {
 	registry := NewSimpleRegistry()
-	storageFactory := NewMemoryStorageFactory(registry, locker.NewMemoryLockerGenerator(), nil)
-	snapshot := NewSimpleStorageSnapshot(registry, storageFactory)
+	lockerGenerator := locker.NewMemoryLockerGenerator()
+	storageFactory := NewMemoryStorageFactory(registry, lockerGenerator, nil)
+	snapshot := NewSimpleStorageSnapshot(registry, storageFactory, lockerGenerator, "")
 
-	storage := NewMemoryStorage(&sync.Mutex{}, registry, snapshot, "")
+	storage, err := NewMemoryStorage(lockerGenerator, registry, snapshot, "")
+	if err != nil {
+		b.Fatal(err)
+	}
 	storage.setDelay(2 * time.Millisecond)
 	snapshot.SetStorageForSnapshot(storage)
 	SpecBenchmarkStorage(b, registry, storage)

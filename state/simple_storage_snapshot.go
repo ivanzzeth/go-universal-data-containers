@@ -1,12 +1,14 @@
 package state
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 var (
@@ -17,19 +19,22 @@ type SnapshotState struct {
 	GormModel
 	BaseState
 
-	SnapshotID string `gorm:"not null;uniqueIndex"`
+	SnapshotID string `gorm:"not null;index"`
 }
 
-func MustNewSnapshotState(locker sync.Locker, snapshotId string) *SnapshotState {
-	state := NewBaseState(locker)
+func MustNewSnapshotState(lockerGenerator locker.SyncLockerGenerator, name, snapshotId string) *SnapshotState {
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
-	state.SetStateName("snapshot_states")
-	state.SetIDMarshaler(NewBase64IDMarshaler("_"))
+	m := &SnapshotState{GormModel: GormModel{Partition: name}, SnapshotID: snapshotId}
 
-	m := &SnapshotState{BaseState: *state, GormModel: GormModel{}, SnapshotID: snapshotId}
+	state, err := NewBaseState(lockerGenerator, "snapshot_states", NewBase64IDMarshaler("_"), m.StateIDComponents())
+	if err != nil {
+		panic(fmt.Errorf("failed to create base state: %v", err))
+	}
 
-	err := m.FillID(m)
+	m.BaseState = *state
+
+	err = m.FillID(m)
 	if err != nil {
 		panic(fmt.Errorf("invalid stateID: %v", err))
 	}
@@ -37,28 +42,36 @@ func MustNewSnapshotState(locker sync.Locker, snapshotId string) *SnapshotState 
 	return m
 }
 
-func (u *SnapshotState) StateIDComponents() []any {
-	return []any{&u.SnapshotID}
+func (u *SnapshotState) StateIDComponents() StateIDComponents {
+	return []any{&u.Partition, &u.SnapshotID}
 }
 
 type SimpleStorageSnapshot struct {
-	storage        Storage
-	setStorageOnce sync.Once
-	storageFactory StorageFactory
-	registry       Registry
+	name            string
+	storage         Storage
+	setStorageOnce  sync.Once
+	storageFactory  StorageFactory
+	lockerGenerator locker.SyncLockerGenerator
+	registry        Registry
 }
 
-func NewSimpleStorageSnapshot(registry Registry, storageFactory StorageFactory) *SimpleStorageSnapshot {
+func NewSimpleStorageSnapshot(registry Registry, storageFactory StorageFactory, lockerGenerator locker.SyncLockerGenerator, name string) *SimpleStorageSnapshot {
+	if name == "" {
+		name = "default"
+	}
+
 	return &SimpleStorageSnapshot{
-		storageFactory: storageFactory,
-		registry:       registry,
+		storageFactory:  storageFactory,
+		registry:        registry,
+		lockerGenerator: lockerGenerator,
+		name:            name,
 	}
 }
 
 func (s *SimpleStorageSnapshot) SetStorageForSnapshot(storage Storage) {
 	s.setStorageOnce.Do(func() {
 		s.storage = storage
-		s.registry.RegisterState(MustNewSnapshotState(&sync.Mutex{}, ""))
+		s.registry.RegisterState(MustNewSnapshotState(s.lockerGenerator, s.name, ""))
 	})
 }
 
@@ -66,13 +79,17 @@ func (s *SimpleStorageSnapshot) GetStorageForSnapshot() (storage Storage) {
 	return s.storage
 }
 
-func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) {
+func (s *SimpleStorageSnapshot) SnapshotStates(ctx context.Context) (snapshotID string, err error) {
 	// fmt.Printf("SnapshotStates\n")
-	s.storage.Lock()
-	defer s.storage.Unlock()
+	err = s.storage.Lock(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	defer s.storage.Unlock(ctx)
 
 	// fmt.Printf("SnapshotStates LoadAllStates\n")
-	states, err := s.storage.LoadAllStates()
+	states, err := s.storage.LoadAllStates(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -80,13 +97,13 @@ func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) 
 	// Generate random snapshotID
 	snapshotID = uuid.New().String()
 	// fmt.Printf("SnapshotStates GetOrCreateStorage\n")
-	storage, err := s.createSnapshot(snapshotID)
+	storage, err := s.createSnapshot(ctx, snapshotID)
 	if err != nil {
 		return "", err
 	}
 
 	// fmt.Printf("SnapshotStates SaveStates\n")
-	err = storage.SaveStates(states...)
+	err = storage.SaveStates(ctx, states...)
 	if err != nil {
 		return "", err
 	}
@@ -94,34 +111,38 @@ func (s *SimpleStorageSnapshot) SnapshotStates() (snapshotID string, err error) 
 	return
 }
 
-func (s *SimpleStorageSnapshot) RevertStatesToSnapshot(snapshotID string) (err error) {
+func (s *SimpleStorageSnapshot) RevertStatesToSnapshot(ctx context.Context, snapshotID string) (err error) {
 	// fmt.Printf("RevertStatesToSnapshot\n")
-	s.storage.Lock()
-	defer s.storage.Unlock()
+	err = s.storage.Lock(ctx)
+	if err != nil {
+		return err
+	}
+
+	defer s.storage.Unlock(ctx)
 
 	// fmt.Printf("RevertStatesToSnapshot GetSnapshot\n")
 
-	snapshot, err := s.getSnapshot(snapshotID)
+	snapshot, err := s.getSnapshot(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 	// fmt.Printf("RevertStatesToSnapshot LoadAllStates\n")
 
-	states, err := snapshot.LoadAllStates()
+	states, err := snapshot.LoadAllStates(ctx)
 	if err != nil {
 		return err
 	}
 
 	// fmt.Printf("RevertStatesToSnapshot ClearAllStates\n")
 
-	err = s.storage.ClearAllStates()
+	err = s.storage.ClearAllStates(ctx)
 	if err != nil {
 		return err
 	}
 
 	// fmt.Printf("RevertStatesToSnapshot SaveStates\n")
 
-	err = s.storage.SaveStates(states...)
+	err = s.storage.SaveStates(ctx, states...)
 	if err != nil {
 		return err
 	}
@@ -129,48 +150,54 @@ func (s *SimpleStorageSnapshot) RevertStatesToSnapshot(snapshotID string) (err e
 	return nil
 }
 
-func (s *SimpleStorageSnapshot) GetSnapshot(snapshotID string) (storage Storage, err error) {
-	s.storage.Lock()
-	defer s.storage.Unlock()
+func (s *SimpleStorageSnapshot) GetSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
+	err = s.storage.Lock(ctx)
+	if err != nil {
+		return
+	}
+	defer s.storage.Unlock(ctx)
 
-	return s.getSnapshot(snapshotID)
+	return s.getSnapshot(ctx, snapshotID)
 }
 
-func (s *SimpleStorageSnapshot) GetSnapshotIDs() (snapshotIDs []string, err error) {
-	s.storage.Lock()
-	defer s.storage.Unlock()
+func (s *SimpleStorageSnapshot) GetSnapshotIDs(ctx context.Context) (snapshotIDs []string, err error) {
+	err = s.storage.Lock(ctx)
+	if err != nil {
+		return
+	}
+	defer s.storage.Unlock(ctx)
 
-	return s.getSnapshotIDs()
+	return s.getSnapshotIDs(ctx)
 }
 
-func (s *SimpleStorageSnapshot) getSnapshotIDs() (snapshotIDs []string, err error) {
+func (s *SimpleStorageSnapshot) getSnapshotIDs(ctx context.Context) (snapshotIDs []string, err error) {
 	sm, err := s.getSnapshotManagementStorage()
 	if err != nil {
 		return
 	}
 
-	snapshotState := MustNewSnapshotState(&sync.Mutex{}, "")
-	snapshotStateIds, err := sm.GetStateIDs(snapshotState.StateName())
+	snapshotState := MustNewSnapshotState(s.lockerGenerator, s.name, "")
+	snapshotStateIds, err := sm.GetStateIDs(ctx, snapshotState.StateName())
 	if err != nil {
 		return
 	}
 
 	for _, snapshotStateId := range snapshotStateIds {
-		snapshot := MustNewSnapshotState(&sync.Mutex{}, "")
-		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, &snapshot.ID)
+		snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, "")
+		err = NewBase64IDMarshaler("_").UnmarshalStateID(snapshotStateId, snapshot.StateIDComponents()...)
 		if err != nil {
 			return
 		}
 
-		snapshotIDs = append(snapshotIDs, snapshot.ID)
+		snapshotIDs = append(snapshotIDs, snapshot.SnapshotID)
 	}
 
 	return
 }
 
-func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage, err error) {
-	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
-	stateID, err := snapshot.GetIDMarshaler().MarshalStateID(snapshot.StateIDComponents()...)
+func (s *SimpleStorageSnapshot) getSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
+	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
+	stateID, err := GetStateID(snapshot)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +207,7 @@ func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage,
 		return
 	}
 
-	snapshotState, err := sm.LoadState(snapshot.StateName(), stateID)
+	snapshotState, err := sm.LoadState(ctx, snapshot.StateName(), stateID)
 	if err != nil {
 		if errors.Is(err, ErrStateNotFound) {
 			return nil, ErrSnapshotNotFound
@@ -197,17 +224,25 @@ func (s *SimpleStorageSnapshot) getSnapshot(snapshotID string) (storage Storage,
 	return
 }
 
-func (s *SimpleStorageSnapshot) createSnapshot(snapshotID string) (storage Storage, err error) {
-	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
-	snapshot.CreatedAt = time.Now()
-	snapshot.UpdatedAt = time.Now()
-
+func (s *SimpleStorageSnapshot) createSnapshot(ctx context.Context, snapshotID string) (storage Storage, err error) {
 	sm, err := s.getSnapshotManagementStorage()
 	if err != nil {
 		return
 	}
 
-	err = sm.SaveStates(snapshot)
+	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
+
+	err = snapshot.Lock(ctx)
+	if err != nil {
+		return
+	}
+	defer snapshot.Unlock(ctx)
+
+	snapshot.CreatedAt = time.Now()
+	snapshot.UpdatedAt = time.Now()
+
+	// fmt.Printf("SnapshotStates createSnapshot: %+v\n", snapshot)
+	err = sm.SaveStates(ctx, snapshot)
 	if err != nil {
 		return
 	}
@@ -223,20 +258,23 @@ func (s *SimpleStorageSnapshot) getSnapshotManagementStorage() (storage Storage,
 	return
 }
 
-func (s *SimpleStorageSnapshot) DeleteSnapshot(snapshotID string) (err error) {
-	s.storage.Lock()
-	defer s.storage.Unlock()
+func (s *SimpleStorageSnapshot) DeleteSnapshot(ctx context.Context, snapshotID string) (err error) {
+	err = s.storage.Lock(ctx)
+	if err != nil {
+		return
+	}
+	defer s.storage.Unlock(ctx)
 
-	return s.deleteSnapshot(snapshotID)
+	return s.deleteSnapshot(ctx, snapshotID)
 }
 
-func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
-	storage, err := s.getSnapshot(snapshotID)
+func (s *SimpleStorageSnapshot) deleteSnapshot(ctx context.Context, snapshotID string) (err error) {
+	storage, err := s.getSnapshot(ctx, snapshotID)
 	if err != nil {
 		return err
 	}
 
-	err = storage.ClearAllStates()
+	err = storage.ClearAllStates(ctx)
 	if err != nil {
 		return err
 	}
@@ -246,8 +284,8 @@ func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
 		return
 	}
 
-	snapshot := MustNewSnapshotState(&sync.Mutex{}, snapshotID)
-	err = sm.ClearStates(snapshot)
+	snapshot := MustNewSnapshotState(s.lockerGenerator, s.name, snapshotID)
+	err = sm.ClearStates(ctx, snapshot)
 	if err != nil {
 		return
 	}
@@ -255,17 +293,20 @@ func (s *SimpleStorageSnapshot) deleteSnapshot(snapshotID string) (err error) {
 	return
 }
 
-func (s *SimpleStorageSnapshot) ClearSnapshots() (err error) {
-	s.storage.Lock()
-	defer s.storage.Unlock()
+func (s *SimpleStorageSnapshot) ClearSnapshots(ctx context.Context) (err error) {
+	err = s.storage.Lock(ctx)
+	if err != nil {
+		return
+	}
+	defer s.storage.Unlock(ctx)
 
-	snapshotIds, err := s.getSnapshotIDs()
+	snapshotIds, err := s.getSnapshotIDs(ctx)
 	if err != nil {
 		return
 	}
 
 	for _, snapshotId := range snapshotIds {
-		err = s.deleteSnapshot(snapshotId)
+		err = s.deleteSnapshot(ctx, snapshotId)
 		if err != nil {
 			return err
 		}

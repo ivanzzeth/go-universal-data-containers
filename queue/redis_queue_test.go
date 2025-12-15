@@ -14,7 +14,7 @@ func TestRedisQueueSequencial(t *testing.T) {
 		Addr: s.Addr(),
 	})
 
-	f := NewRedisQueueFactory(rdb)
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
 	q, err := f.GetOrCreate("queue")
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestRedisQueueConcurrent(t *testing.T) {
 		Addr: s.Addr(),
 	})
 
-	f := NewRedisQueueFactory(rdb)
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
 	q, err := f.GetOrCreate("queue")
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +45,7 @@ func TestRedisQueueSubscribeHandleReachedMaxFailures(t *testing.T) {
 		Addr: s.Addr(),
 	})
 
-	f := NewRedisQueueFactory(rdb)
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
 	SpecTestQueueSubscribeHandleReachedMaxFailures(t, f)
 }
 
@@ -56,7 +56,76 @@ func TestRedisQueueSubscribe(t *testing.T) {
 		Addr: s.Addr(),
 	})
 
-	f := NewRedisQueueFactory(rdb)
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
 
 	SpecTestQueueSubscribe(t, f)
+}
+
+func TestRedisQueueSubscribeWithConsumerCount(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+
+	SpecTestQueueSubscribeWithConsumerCount(t, f)
+}
+
+func TestRedisQueueTimeout(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+	SpecTestQueueTimeout(t, f)
+}
+
+func TestRedisQueueStressTest(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+	SpecTestQueueStressTest(t, f)
+}
+
+func TestRedisQueueErrorHandling(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+	SpecTestQueueErrorHandling(t, f)
+}
+
+func TestRedisQueueBlockingOperations(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+
+	SpecTestQueueBlockingOperations(t, f)
+}
+
+func TestRedisQueueBlockingWithContext(t *testing.T) {
+	s := miniredis.RunT(t)
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+
+	SpecTestQueueBlockingWithContext(t, f)
 }

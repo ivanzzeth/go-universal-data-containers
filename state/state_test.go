@@ -1,8 +1,10 @@
 package state
 
 import (
+	"context"
 	"fmt"
-	"sync"
+
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 )
 
 // Make sure (Name, Server) or (Name + Server) is unique, so that they can be composed as StateID
@@ -16,16 +18,20 @@ type TestUserModel struct {
 	Height    int
 }
 
-func MustNewTestUserModel(locker sync.Locker, name, server string) *TestUserModel {
-	state := NewBaseState(locker)
+func MustNewTestUserModel(lockerGenerator locker.SyncLockerGenerator, partition, name, server string) *TestUserModel {
+	// You must initialize all id components first
+	m := &TestUserModel{GormModel: GormModel{Partition: partition}, Name: name, Server: server}
+
 	// Make sure that it's compatible for all storages you want to use
 	// For GORMStorage and MemoryStorage, it is ok.
-	state.SetStateName("test_user_models")
-	state.SetIDMarshaler(NewBase64IDMarshaler("-"))
+	state, err := NewBaseState(lockerGenerator, "test_user_models", NewBase64IDMarshaler("-"), m.StateIDComponents())
+	if err != nil {
+		panic(fmt.Errorf("failed to create base state: %v", err))
+	}
 
-	m := &TestUserModel{BaseState: *state, Name: name, Server: server}
+	m.BaseState = *state
 
-	err := m.FillID(m)
+	err = m.FillID(m)
 	if err != nil {
 		panic(fmt.Errorf("invalid stateID: %v", err))
 	}
@@ -44,16 +50,20 @@ func (u *TestUserModel) Get() error {
 		return err
 	}
 
-	state, err := u.finalizer.LoadState(u.StateName(), stateID)
+	state, err := u.finalizer.LoadState(context.TODO(), u.StateName(), stateID)
 	if err != nil {
 		return err
 	}
 
 	*u = *(state.(*TestUserModel))
-	u.SetLocker((state.(*TestUserModel)).GetLocker())
+	err = u.Initialize((state.(*TestUserModel)).GetLockerGenerator(), u.StateName(), u.GetIDMarshaler(), u.StateIDComponents())
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func (u *TestUserModel) StateIDComponents() []any {
-	return []any{&u.Name, &u.Server}
+func (u *TestUserModel) StateIDComponents() StateIDComponents {
+	return []any{&u.Partition, &u.Name, &u.Server}
 }

@@ -1,9 +1,9 @@
 package state
 
 import (
-	"sync"
 	"testing"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,14 +18,14 @@ func TestBase64IDMarshaler(t *testing.T) {
 }
 
 func SpecTestIDMarshaler(t *testing.T, m IDMarshaler) {
-	user1 := MustNewTestUserModel(&sync.Mutex{}, "user1", "server")
+	user1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "user1", "server")
 
 	stateID, err := m.MarshalStateID(user1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	newUser1 := MustNewTestUserModel(&sync.Mutex{}, "", "")
+	newUser1 := MustNewTestUserModel(locker.NewMemoryLockerGenerator(), "partition1", "", "")
 	err = m.UnmarshalStateID(stateID, newUser1.StateIDComponents()...)
 	if err != nil {
 		t.Fatal(err)

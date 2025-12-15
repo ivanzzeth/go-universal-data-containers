@@ -1,56 +1,45 @@
 package queue
 
 import (
+	"context"
 	"errors"
-	"fmt"
 	"time"
 
-	"github.com/adjust/rmq/v5"
 	"github.com/redis/go-redis/v9"
 )
 
 var (
-	_ Queue            = (*RedisQueue)(nil)
-	_ RecoverableQueue = (*RedisQueue)(nil)
-	_ Factory          = (*RedisQueueFactory)(nil)
+	_ Queue[any]   = (*RedisQueue[any])(nil)
+	_ Factory[any] = (*RedisQueueFactory[any])(nil)
+
+	_ RecoverableQueue[any] = &RedisQueue[any]{}
+	_ Purgeable             = &RedisQueue[any]{}
+	_ DLQer[any]            = &RedisQueue[any]{}
 )
 
-const (
-	redisQueueTestMsg = "test-message-facgasdffadspoiubsf"
-)
-
-type RedisQueueFactory struct {
-	rmqConn rmq.Connection
+type RedisQueueFactory[T any] struct {
+	redisClient redis.Cmdable
+	defaultMsg  Message[T]
 }
 
-func NewRedisQueueFactory(redisClient redis.Cmdable) *RedisQueueFactory {
-	errChan := make(chan error, 100)
-	go func() {
-		for err := range errChan {
-			if err != nil {
-				// TODO: logging
-				// fmt.Printf("redis queue got err: %v\n", err)
-			}
-		}
-	}()
+func NewRedisQueueFactory[T any](redisClient redis.Cmdable, defaultMsg Message[T]) *RedisQueueFactory[T] {
+	return &RedisQueueFactory[T]{
+		redisClient: redisClient,
+		defaultMsg:  defaultMsg,
+	}
+}
 
-	rmqConn, err := rmq.OpenConnectionWithRedisClient("rmq", redisClient, errChan)
+func (f *RedisQueueFactory[T]) GetOrCreate(name string, options ...Option) (Queue[T], error) {
+	q, err := NewRedisQueue(f.redisClient, name, f.defaultMsg, options...)
 	if err != nil {
-		panic(fmt.Errorf("failed to open rmq connection: %v", err))
+		return nil, err
 	}
 
-	return &RedisQueueFactory{
-		rmqConn: rmqConn,
-	}
+	return NewSimpleQueue[T](q)
 }
 
-func (f *RedisQueueFactory) GetOrCreate(name string, options ...Option) (Queue, error) {
-	ops := DefaultOptions
-	for _, op := range options {
-		op(&ops)
-	}
-
-	q, err := NewRedisQueue(f.rmqConn, name, &ops)
+func (f *RedisQueueFactory[T]) GetOrCreateSafe(name string, options ...Option) (SafeQueue[T], error) {
+	q, err := NewRedisQueue(f.redisClient, name, f.defaultMsg, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -58,138 +47,104 @@ func (f *RedisQueueFactory) GetOrCreate(name string, options ...Option) (Queue, 
 	return NewSimpleQueue(q)
 }
 
-func (f *RedisQueueFactory) GetOrCreateSafe(name string, options ...Option) (SafeQueue, error) {
-	ops := DefaultOptions
-	for _, op := range options {
-		op(&ops)
-	}
+type RedisQueue[T any] struct {
+	*BaseQueue[T]
+	redisClient redis.Cmdable
+}
 
-	q, err := NewRedisQueue(f.rmqConn, name, &ops)
+func NewRedisQueue[T any](redisClient redis.Cmdable, name string, defaultMsg Message[T], options ...Option) (*RedisQueue[T], error) {
+	baseQueue, err := NewBaseQueue(name, defaultMsg, options...)
 	if err != nil {
 		return nil, err
 	}
 
-	return NewSimpleQueue(q)
-}
+	q := &RedisQueue[T]{
+		BaseQueue:   baseQueue,
+		redisClient: redisClient,
+	}
 
-type RedisQueue struct {
-	*BaseQueue
-	q rmq.Queue
-}
-
-func NewRedisQueue(conn rmq.Connection, name string, options *Config) (*RedisQueue, error) {
-	baseQueue := NewBaseQueue(name, options)
-	queue, err := conn.OpenQueue(name)
+	dlqBaseQueue, err := NewBaseQueue(q.GetDeadletterQueueName(), defaultMsg, options...)
 	if err != nil {
 		return nil, err
 	}
 
-	err = queue.StartConsuming(1, options.PollInterval)
+	dlq := &RedisQueue[T]{
+		BaseQueue:   dlqBaseQueue,
+		redisClient: redisClient,
+	}
+
+	DLQ, err := newBaseDLQ(q, dlq)
 	if err != nil {
 		return nil, err
 	}
 
-	// FIXME: First message will be lost, then publish a test message to avoid this.
-	err = queue.PublishBytes([]byte(redisQueueTestMsg))
-	if err != nil {
-		return nil, err
-	}
+	q.SetDLQ(DLQ)
 
-	go func() {
-		for {
-			time.Sleep(options.PollInterval)
-			select {
-			case <-baseQueue.exitChannel:
-				return
-			default:
-			}
-			unackedReturned, err := queue.ReturnUnacked(10)
-			if err != nil {
-				// TODO: logging
-				fmt.Printf("redis queue got err: %v\n", err)
-				continue
-			}
+	go q.run()
+	go dlq.run()
 
-			if unackedReturned > 0 {
-				// TODO: logging
-				fmt.Printf("redis queue returned %d unacked messages\n", unackedReturned)
-			}
-
-			// rejectedReturned, err := queue.ReturnRejected(10)
-			// if err != nil {
-			// 	// TODO: logging
-			// 	if !errors.Is(err, rmq.ErrorNotFound) {
-			// 		// fmt.Printf("redis queue got err: %v\n", err)
-
-			// 		continue
-			// 	}
-			// }
-
-			// if rejectedReturned > 0 {
-			// 	// TODO: logging
-			// 	// fmt.Printf("redis queue returned %d rejected messages\n", rejectedReturned)
-			// }
-		}
-	}()
-
-	return &RedisQueue{
-		BaseQueue: baseQueue,
-		q:         queue,
-	}, nil
+	return q, nil
 }
 
-func (q *RedisQueue) MaxSize() int {
-	return UnlimitedSize
-}
+// func (q *RedisQueue[T]) MaxSize() int {
+// 	return UnlimitedSize
+// }
 
-func (q *RedisQueue) Enqueue(data []byte) error {
+func (q *RedisQueue[T]) Enqueue(ctx context.Context, data T) error {
 	// fmt.Printf("Enqueue %v\n", data)
 	err := q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
 	}
 
-	q.m.Lock()
-	defer q.m.Unlock()
+	len, err := q.redisClient.LLen(ctx, q.GetQueueKey()).Result()
+	if err != nil {
+		return err
+	}
+
+	if q.MaxSize() > 0 && int(len) >= q.MaxSize() {
+		return ErrQueueFull
+	}
 
 	packedData, err := q.Pack(data)
 	if err != nil {
 		return err
 	}
 
-	return q.q.PublishBytes(packedData)
+	return q.redisClient.RPush(ctx, q.GetQueueKey(), packedData).Err()
 }
 
-func (q *RedisQueue) Dequeue() (Message, error) {
-	data, err := q.q.Drain(1)
-	if err != nil {
-		if errors.Is(err, redis.Nil) {
-			return nil, ErrQueueEmpty
+func (q *RedisQueue[T]) BEnqueue(ctx context.Context, data T) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			err := q.Enqueue(ctx, data)
+			if err != nil {
+				if errors.Is(err, ErrQueueFull) {
+					time.Sleep(q.config.PollInterval)
+					continue
+				}
+
+				return err
+			}
 		}
+	}
+}
 
-		return nil, err
+func (q *RedisQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
+	data, err := q.redisClient.LPop(ctx, q.GetQueueKey()).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil, ErrQueueEmpty
 	}
 
-	// bytes := [][]byte{}
-	// for _, d := range data {
-	// 	bytes = append(bytes, []byte(d))
-	// }
-	// fmt.Printf("Dequeue %v\n", bytes)
-
-	if len(data) != 1 {
-		return nil, fmt.Errorf("expected 1 message, got %d", len(data))
-	}
-
-	if data[0] == redisQueueTestMsg {
-		return q.Dequeue()
-	}
-
-	packedData := []byte(data[0])
+	packedData := []byte(data)
 	msg, err := q.Unpack(packedData)
 	if err != nil {
 		// Consider the message is test message, just ignore it and dequeue again
 		// fmt.Printf("failed to unpack message: %v\n", err)
-		return q.Dequeue()
+		return q.Dequeue(ctx)
 	}
 
 	if msg.RetryCount() > q.config.MaxHandleFailures {
@@ -199,57 +154,75 @@ func (q *RedisQueue) Dequeue() (Message, error) {
 	return msg, nil
 }
 
-func (q *RedisQueue) Subscribe(cb Handler) {
-	if q.cb == nil {
-		q.cb = cb
-
-		for i := 0; i < q.config.ConsumerCount; i++ {
-			consumerName := fmt.Sprintf("%v-consumer-%v", q.Name(), i)
-			q.q.AddConsumerFunc(consumerName, func(delivery rmq.Delivery) {
-				var (
-					err error
-					msg Message
-				)
-				data := delivery.Payload()
-				// fmt.Printf("Subscribe %v\n", data)
-				if data != redisQueueTestMsg {
-					// fmt.Printf("Handle %v\n", data)
-					msg, err = q.Unpack([]byte(data))
-					if err != nil {
-						// TODO: logging
-						return
-					}
+func (q *RedisQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+			msg, err := q.Dequeue(ctx)
+			if err != nil {
+				if errors.Is(err, ErrQueueEmpty) {
+					time.Sleep(q.config.PollInterval)
+					continue
 				}
 
-				defer func() {
-					for i := 0; i < q.config.MaxRetries; i++ {
-						err = delivery.Ack()
-						if err != nil {
-							// TODO: logging
-							continue
-						}
+				return nil, err
+			}
 
-						return
-					}
-				}()
-
-				if msg != nil {
-					err = cb(msg)
-					if err != nil {
-						// fmt.Printf("Handle failed %v: %v\n", data, err)
-						return
-					}
-				}
-			})
+			return msg, nil
 		}
 	}
 }
 
-func (q *RedisQueue) Recover(msg Message) error {
+func (q *RedisQueue[T]) Purge(ctx context.Context) error {
+	return q.redisClient.Del(ctx, q.GetQueueKey()).Err()
+}
+
+func (q *RedisQueue[T]) run() {
+Loop:
+	for {
+		select {
+		case <-q.exitChannel:
+			break Loop
+		default:
+			q.locker.Lock(context.Background())
+			callbacks := q.callbacks
+			q.locker.Unlock(context.Background())
+
+			if callbacks == nil {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+
+			msg, err := q.Dequeue(context.TODO())
+			if err != nil {
+				time.Sleep(q.config.PollInterval)
+				continue Loop
+			}
+
+			q.TriggerCallbacks(msg)
+
+			time.Sleep(q.config.PollInterval)
+		}
+	}
+}
+
+func (q *RedisQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 	if msg.RetryCount() >= q.config.MaxHandleFailures {
-		// Just ignore it for now
+		err := q.dlq.Enqueue(ctx, msg.Data())
+		if err != nil {
+			return err
+		}
+
 		return nil
 	}
+
+	err := q.BaseQueue.ValidateQueueClosed()
+	if err != nil {
+		return err
+	}
+
 	msg.AddRetryCount()
 	msg.RefreshUpdatedAt()
 
@@ -258,10 +231,5 @@ func (q *RedisQueue) Recover(msg Message) error {
 		return err
 	}
 
-	err = q.q.PublishBytes(packedData)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return q.redisClient.RPush(ctx, q.GetQueueKey(), packedData).Err()
 }

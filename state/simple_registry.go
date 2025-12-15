@@ -1,6 +1,7 @@
 package state
 
 import (
+	"fmt"
 	"reflect"
 	"sync"
 )
@@ -19,7 +20,22 @@ type SimpleRegistry struct {
 }
 
 func NewSimpleRegistry() *SimpleRegistry {
-	return &SimpleRegistry{}
+	r := &SimpleRegistry{}
+
+	// Register default states
+	states := []State{
+		&FinalizeState{},
+		&SnapshotState{},
+	}
+
+	for _, state := range states {
+		err := r.RegisterState(state)
+		if err != nil {
+			panic(fmt.Errorf("failed to register internal state: %v", err))
+		}
+	}
+
+	return r
 }
 
 func (s *SimpleRegistry) RegisterState(state State) error {
@@ -29,6 +45,16 @@ func (s *SimpleRegistry) RegisterState(state State) error {
 	s.states.Store(state.StateName(), state)
 
 	return nil
+}
+
+func (s *SimpleRegistry) GetRegisteredStates() []State {
+	var states []State
+	s.states.Range(func(key, value any) bool {
+		states = append(states, value.(State))
+		return true
+	})
+
+	return states
 }
 
 func (s *SimpleRegistry) NewState(name string) (State, error) {
@@ -44,8 +70,11 @@ func (s *SimpleRegistry) NewState(name string) (State, error) {
 
 	state := stateInterface.(State)
 
-	state.SetStateName(name)
-	state.SetLocker(registered.(State).GetLocker())
-	state.SetIDMarshaler(registered.(State).GetIDMarshaler())
+	// fmt.Printf("NewState state, Initialize: %+v, name: %v, stateIdComponents: %+v\n", state, name, state.(State).StateIDComponents())
+	err := state.Initialize(registered.(State).GetLockerGenerator(), name, registered.(State).GetIDMarshaler(), state.StateIDComponents())
+	if err != nil {
+		return nil, err
+	}
+
 	return state, nil
 }

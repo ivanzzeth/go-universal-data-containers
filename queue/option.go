@@ -3,6 +3,7 @@ package queue
 import (
 	"time"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/ivanzzeth/go-universal-data-containers/message"
 )
 
@@ -10,6 +11,8 @@ var (
 	DefaultPollInterval = 10 * time.Millisecond
 	DefaultMaxRetries   = 10
 	DefaultOptions      = Config{
+		LockerGenerator: locker.NewMemoryLockerGenerator(),
+
 		MaxSize: UnlimitedSize,
 
 		MaxHandleFailures: 10,
@@ -19,8 +22,6 @@ var (
 
 		ConsumerCount: 1,
 
-		Message: &JsonMessage{},
-
 		MessageIDGenerator: message.GenerateRandomID,
 	}
 )
@@ -29,6 +30,8 @@ type Option func(*Config)
 
 // Configuarable options here, but some implementations of queue may not support all options
 type Config struct {
+	LockerGenerator locker.SyncLockerGenerator
+
 	MaxSize int
 
 	// Messages will be discarded after this many failures, or
@@ -45,9 +48,6 @@ type Config struct {
 	// If you want to ensure the order of messages, please use FIFO queue and set ConsumerCount to 1
 	ConsumerCount int
 
-	// Specify standard message
-	// Use json message if nil
-	Message            Message
 	MessageIDGenerator message.MessageIDGenerator
 }
 
@@ -78,12 +78,6 @@ func WithMaxRetries(maxRetries int) func(*Config) {
 func WithConsumerCount(consumerCount int) func(*Config) {
 	return func(o *Config) {
 		o.ConsumerCount = consumerCount
-	}
-}
-
-func WithMessage(message Message) func(*Config) {
-	return func(o *Config) {
-		o.Message = message
 	}
 }
 

@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"context"
 	"math"
 	"time"
 
@@ -9,63 +10,63 @@ import (
 )
 
 var (
-	_ Queue     = &SimpleQueue{}
-	_ SafeQueue = &SimpleQueue{}
+	_ Queue[any]     = &SimpleQueue[any]{}
+	_ SafeQueue[any] = &SimpleQueue[any]{}
 )
 
 // SafeQueue provides ability to put message back to queue when handler encounters panic
 // and makes sure all function calls are safe.
 // e.g, Returns ErrNotImplemented if calling Recover and it is not implemented
-type SafeQueue interface {
-	Queue
+type SafeQueue[T any] interface {
+	Queue[T]
 
-	Recoverable
+	Recoverable[T]
 	IsRecoverable() bool
 
 	Purgeable
 	IsPurgeable() bool
 
-	DLQer
+	DLQer[T]
 	IsDLQSupported() bool
 }
 
-type SimpleQueue struct {
-	queue Queue
+type SimpleQueue[T any] struct {
+	queue Queue[T]
 }
 
-func NewSimpleQueue(queue Queue) (*SimpleQueue, error) {
-	return &SimpleQueue{
+func NewSimpleQueue[T any](queue Queue[T]) (*SimpleQueue[T], error) {
+	return &SimpleQueue[T]{
 		queue: queue,
 	}, nil
 }
 
-func (q *SimpleQueue) Unwrap() Queue {
+func (q *SimpleQueue[T]) Unwrap() Queue[T] {
 	return q.queue
 }
 
-func (q *SimpleQueue) Kind() Kind {
+func (q *SimpleQueue[T]) Kind() Kind {
 	return q.queue.Kind()
 }
 
-func (q *SimpleQueue) Name() string {
+func (q *SimpleQueue[T]) Name() string {
 	return q.queue.Name()
 }
 
-func (q *SimpleQueue) Close() {
+func (q *SimpleQueue[T]) Close() {
 	q.queue.Close()
 }
 
-func (q *SimpleQueue) MaxSize() int {
+func (q *SimpleQueue[T]) MaxSize() int {
 	return q.queue.MaxSize()
 }
 
-func (q *SimpleQueue) MaxHandleFailures() int {
+func (q *SimpleQueue[T]) MaxHandleFailures() int {
 	return q.queue.MaxHandleFailures()
 }
 
-func (q *SimpleQueue) Enqueue(data []byte) error {
+func (q *SimpleQueue[T]) Enqueue(ctx context.Context, data T) error {
 	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
-	err := q.queue.Enqueue(data)
+	err := q.queue.Enqueue(ctx, data)
 	if err != nil {
 		metrics.MetricQueueEnqueueErrorTotal.WithLabelValues(q.Name()).Inc()
 		return err
@@ -74,9 +75,20 @@ func (q *SimpleQueue) Enqueue(data []byte) error {
 	return nil
 }
 
-func (q *SimpleQueue) Dequeue() (Message, error) {
+func (q *SimpleQueue[T]) BEnqueue(ctx context.Context, data T) error {
+	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
+	err := q.queue.BEnqueue(ctx, data)
+	if err != nil {
+		metrics.MetricQueueEnqueueErrorTotal.WithLabelValues(q.Name()).Inc()
+		return err
+	}
+
+	return nil
+}
+
+func (q *SimpleQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
-	data, err := q.queue.Dequeue()
+	data, err := q.queue.Dequeue(ctx)
 	if err != nil {
 		metrics.MetricQueueDequeueErrorTotal.WithLabelValues(q.Name()).Inc()
 		return nil, err
@@ -85,8 +97,19 @@ func (q *SimpleQueue) Dequeue() (Message, error) {
 	return data, nil
 }
 
-func (q *SimpleQueue) Subscribe(cb Handler) {
-	q.queue.Subscribe(func(msg Message) error {
+func (q *SimpleQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
+	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
+	data, err := q.queue.BDequeue(ctx)
+	if err != nil {
+		metrics.MetricQueueDequeueErrorTotal.WithLabelValues(q.Name()).Inc()
+		return nil, err
+	}
+
+	return data, nil
+}
+
+func (q *SimpleQueue[T]) Subscribe(cb Handler[T]) {
+	q.queue.Subscribe(func(msg Message[T]) error {
 		startTime := time.Now()
 		defer func() {
 			metrics.MetricQueueHandleDuration.WithLabelValues(q.Name()).Observe(time.Since(startTime).Seconds())
@@ -104,19 +127,19 @@ func (q *SimpleQueue) Subscribe(cb Handler) {
 	})
 }
 
-func (q *SimpleQueue) handle(msg Message, cb Handler) (err error) {
+func (q *SimpleQueue[T]) handle(msg Message[T], cb Handler[T]) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = ErrQueueRecovered
 			// log.Error("Recovered from subscribe queue panic", "err", r)
 			metrics.MetricQueueRecoverTotal.WithLabelValues(q.Name()).Inc()
 
-			if queue, ok := q.queue.(RecoverableQueue); ok {
+			if queue, ok := q.queue.(RecoverableQueue[T]); ok {
 				var recoverErr error
 				for i := 0; i < DefaultMaxRetries; i++ {
 					// fmt.Printf("Recover %v\n", b)
 
-					recoverErr = queue.Recover(msg)
+					recoverErr = queue.Recover(context.TODO(), msg)
 					if recoverErr != nil {
 						time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
 						continue
@@ -138,7 +161,7 @@ func (q *SimpleQueue) handle(msg Message, cb Handler) (err error) {
 			var recoverErr error
 			for i := 0; i < DefaultMaxRetries; i++ {
 				// fmt.Printf("Recover2 %v\n", b)
-				recoverErr = q.Recover(msg)
+				recoverErr = q.Recover(context.TODO(), msg)
 				if recoverErr != nil {
 					time.Sleep(time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond)
 					continue
@@ -158,12 +181,12 @@ func (q *SimpleQueue) handle(msg Message, cb Handler) (err error) {
 	return nil
 }
 
-func (q *SimpleQueue) Recover(msg Message) error {
+func (q *SimpleQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 	// log.Debug("SafeQueue recover", "data", fmt.Sprintf("0x%x", b))
 	metrics.MetricQueueRecoverTotal.WithLabelValues(q.Name()).Inc()
 
-	if queue, ok := q.queue.(RecoverableQueue); ok {
-		err := queue.Recover(msg)
+	if queue, ok := q.queue.(RecoverableQueue[T]); ok {
+		err := queue.Recover(ctx, msg)
 		if err != nil {
 			metrics.MetricQueueRecoverErrorTotal.WithLabelValues(q.Name()).Inc()
 			return err
@@ -175,17 +198,17 @@ func (q *SimpleQueue) Recover(msg Message) error {
 	}
 }
 
-func (q *SimpleQueue) IsRecoverable() bool {
-	_, ok := q.queue.(RecoverableQueue)
+func (q *SimpleQueue[T]) IsRecoverable() bool {
+	_, ok := q.queue.(RecoverableQueue[T])
 	return ok
 }
 
-func (q *SimpleQueue) Purge() error {
+func (q *SimpleQueue[T]) Purge(ctx context.Context) error {
 	metrics.MetricQueuePurgeTotal.WithLabelValues(q.Name()).Inc()
 
 	purgeable, ok := q.queue.(Purgeable)
 	if ok {
-		err := purgeable.Purge()
+		err := purgeable.Purge(ctx)
 		if err != nil {
 			metrics.MetricQueuePurgeErrorTotal.WithLabelValues(q.Name()).Inc()
 			return err
@@ -197,20 +220,20 @@ func (q *SimpleQueue) Purge() error {
 	return common.ErrNotImplemented
 }
 
-func (q *SimpleQueue) IsPurgeable() bool {
+func (q *SimpleQueue[T]) IsPurgeable() bool {
 	_, ok := q.queue.(Purgeable)
 	return ok
 }
 
-func (q *SimpleQueue) DLQ() (DLQ, error) {
-	if dlqer, ok := q.queue.(DLQer); ok {
+func (q *SimpleQueue[T]) DLQ() (DLQ[T], error) {
+	if dlqer, ok := q.queue.(DLQer[T]); ok {
 		return dlqer.DLQ()
 	}
 
 	return nil, common.ErrNotImplemented
 }
 
-func (q *SimpleQueue) IsDLQSupported() bool {
-	_, ok := q.queue.(DLQer)
+func (q *SimpleQueue[T]) IsDLQSupported() bool {
+	_, ok := q.queue.(DLQer[T])
 	return ok
 }

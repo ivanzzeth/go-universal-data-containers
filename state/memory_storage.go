@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -32,19 +33,14 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 	onceVal.(*sync.Once).Do(func() {
 		if f.newSnapshot == nil {
 			f.newSnapshot = func(storageFactory StorageFactory) StorageSnapshot {
-				return NewSimpleStorageSnapshot(f.registry, f)
+				return NewSimpleStorageSnapshot(f.registry, f, f.SyncLockerGenerator, name)
 			}
 		}
 		snapshot := f.newSnapshot(f)
-		var locker sync.Locker
-		locker, err = f.SyncLockerGenerator.CreateSyncLocker(fmt.Sprintf("storage-locker-%v", name))
-		if err == nil {
-			var storage Storage
-			storage = NewMemoryStorage(locker, f.registry, snapshot, name)
-			storage = NewStorageWithMetrics(storage)
-
-			f.table.LoadOrStore(name, storage)
-		}
+		var storage Storage
+		storage, err = NewMemoryStorage(f.SyncLockerGenerator, f.registry, snapshot, name)
+		storage = NewStorageWithMetrics(storage)
+		f.table.LoadOrStore(name, storage)
 	})
 	if err != nil {
 		f.table.Delete(fmt.Sprintf("%v-once", name))
@@ -62,31 +58,43 @@ func (f *MemoryStorageFactory) GetOrCreateStorage(name string) (Storage, error) 
 type MemoryStorage struct {
 	registry Registry
 
-	locker sync.Locker
+	locker locker.SyncLocker
 	StorageSnapshot
 
 	name string
 
 	// Only used for simulating network latency
-	delay  time.Duration
+	delay time.Duration
+
+	stateLocker sync.Locker
+
 	States map[string]map[string]State
 }
 
-func NewMemoryStorage(locker sync.Locker, registry Registry, snapshot StorageSnapshot, name string) *MemoryStorage {
+func NewMemoryStorage(lockerGenerator locker.SyncLockerGenerator, registry Registry, snapshot StorageSnapshot, name string) (*MemoryStorage, error) {
 	if name == "" {
 		name = "default"
 	}
 
-	s := &MemoryStorage{
-		locker:   locker,
-		registry: registry,
-		name:     name,
-		States:   make(map[string]map[string]State),
+	locker, err := GetStorageLockerByName(lockerGenerator, name)
+	if err != nil {
+		return nil, err
 	}
 
-	snapshot.SetStorageForSnapshot(s)
-	s.StorageSnapshot = snapshot
-	return s
+	s := &MemoryStorage{
+		locker:      locker,
+		stateLocker: &sync.Mutex{},
+		registry:    registry,
+		name:        name,
+		States:      make(map[string]map[string]State),
+	}
+
+	if snapshot != nil {
+		snapshot.SetStorageForSnapshot(s)
+		s.StorageSnapshot = snapshot
+	}
+
+	return s, nil
 }
 
 func (s *MemoryStorage) setDelay(delay time.Duration) {
@@ -101,16 +109,19 @@ func (s *MemoryStorage) StorageName() string {
 	return s.name
 }
 
-func (s *MemoryStorage) Lock() {
-	s.locker.Lock()
+func (s *MemoryStorage) Lock(ctx context.Context) error {
+	return s.locker.Lock(ctx)
 }
 
-func (s *MemoryStorage) Unlock() {
-	s.locker.Unlock()
+func (s *MemoryStorage) Unlock(ctx context.Context) error {
+	return s.locker.Unlock(ctx)
 }
 
-func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
+func (s *MemoryStorage) GetStateIDs(ctx context.Context, name string) ([]string, error) {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	table, ok := s.States[name]
 	if !ok {
@@ -126,8 +137,11 @@ func (s *MemoryStorage) GetStateIDs(name string) ([]string, error) {
 	return ids, nil
 }
 
-func (s *MemoryStorage) GetStateNames() ([]string, error) {
+func (s *MemoryStorage) GetStateNames(ctx context.Context) ([]string, error) {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	names := make([]string, 0, len(s.States))
 	for name := range s.States {
@@ -137,8 +151,11 @@ func (s *MemoryStorage) GetStateNames() ([]string, error) {
 	return names, nil
 }
 
-func (s *MemoryStorage) LoadAllStates() ([]State, error) {
+func (s *MemoryStorage) LoadAllStates(ctx context.Context) ([]State, error) {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	states := make([]State, 0, len(s.States))
 	for _, table := range s.States {
@@ -150,13 +167,16 @@ func (s *MemoryStorage) LoadAllStates() ([]State, error) {
 	return states, nil
 }
 
-func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
+func (s *MemoryStorage) LoadState(ctx context.Context, name string, id string) (State, error) {
 	_, err := s.registry.NewState(name)
 	if err != nil {
 		return nil, err
 	}
 
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	table, ok := s.States[name]
 	if !ok {
@@ -176,8 +196,11 @@ func (s *MemoryStorage) LoadState(name string, id string) (State, error) {
 	return state, nil
 }
 
-func (s *MemoryStorage) SaveStates(states ...State) error {
+func (s *MemoryStorage) SaveStates(ctx context.Context, states ...State) error {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	for _, state := range states {
 		if state == nil {
@@ -201,8 +224,11 @@ func (s *MemoryStorage) SaveStates(states ...State) error {
 	return nil
 }
 
-func (s *MemoryStorage) ClearStates(states ...State) error {
+func (s *MemoryStorage) ClearStates(ctx context.Context, states ...State) error {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	for _, state := range states {
 		if state == nil {
@@ -217,15 +243,18 @@ func (s *MemoryStorage) ClearStates(states ...State) error {
 			}
 
 			delete(table, stateId)
-			fmt.Printf("Delete state: %s -> %s\n", state.StateName(), stateId)
+			// fmt.Printf("Delete state: %s -> %s\n", state.StateName(), stateId)
 		}
 	}
 
 	return nil
 }
 
-func (s *MemoryStorage) ClearAllStates() error {
+func (s *MemoryStorage) ClearAllStates(ctx context.Context) error {
 	time.Sleep(s.delay)
+
+	s.stateLocker.Lock()
+	defer s.stateLocker.Unlock()
 
 	s.States = make(map[string]map[string]State)
 
