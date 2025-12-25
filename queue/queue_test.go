@@ -179,7 +179,7 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 	var mutex sync.RWMutex
 	currFailures := 0
 	handleSucceeded := false
-	q.Subscribe(func(msg Message[[]byte]) error {
+	q.Subscribe(context.Background(), func(ctx context.Context, msg Message[[]byte]) error {
 		if currFailures <= maxFailures {
 			mutex.Lock()
 			currFailures++
@@ -310,7 +310,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 			defer q.Close()
 
 			// Handler1
-			q.Subscribe(func(msg Message[[]byte]) error {
+			q.Subscribe(context.Background(), func(ctx context.Context, msg Message[[]byte]) error {
 				b := msg.Data()
 
 				t.Logf("Subscribe in test: %v", msg)
@@ -337,7 +337,7 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 			})
 
 			// Handler2
-			q.Subscribe(func(msg Message[[]byte]) error {
+			q.Subscribe(context.Background(), func(ctx context.Context, msg Message[[]byte]) error {
 				b := msg.Data()
 
 				t.Logf("Subscribe 2 in test: %v", msg)
@@ -412,7 +412,7 @@ func SpecTestQueueSubscribeWithConsumerCount(t *testing.T, f Factory[[]byte]) {
 
 	// Subscribe and process messages
 	go func() {
-		q.Subscribe(func(msg Message[[]byte]) error {
+		q.Subscribe(context.Background(), func(ctx context.Context, msg Message[[]byte]) error {
 			mutex.Lock()
 			receivedMessages[string(msg.Data())] = true
 			mutex.Unlock()

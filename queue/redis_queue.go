@@ -180,30 +180,31 @@ func (q *RedisQueue[T]) Purge(ctx context.Context) error {
 }
 
 func (q *RedisQueue[T]) run() {
+	ctx := context.Background()
 Loop:
 	for {
 		select {
 		case <-q.exitChannel:
 			break Loop
 		default:
-			q.locker.Lock(context.Background())
+			q.locker.Lock(ctx)
 			callbacks := q.callbacks
-			q.locker.Unlock(context.Background())
+			q.locker.Unlock(ctx)
 
 			if callbacks == nil {
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(q.config.PollInterval)
 				continue
 			}
 
-			msg, err := q.Dequeue(context.TODO())
+			msg, err := q.Dequeue(ctx)
 			if err != nil {
 				time.Sleep(q.config.PollInterval)
 				continue Loop
 			}
 
-			q.TriggerCallbacks(msg)
+			q.TriggerCallbacks(ctx, msg)
 
-			time.Sleep(q.config.PollInterval)
+			// time.Sleep(q.config.PollInterval)
 		}
 	}
 }

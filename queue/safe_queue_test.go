@@ -200,7 +200,7 @@ func TestSimpleQueue_Subscribe(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	q.Subscribe(func(msg Message[[]byte]) error {
+	q.Subscribe(ctx, func(ctx context.Context, msg Message[[]byte]) error {
 		defer wg.Done()
 		receivedData = msg.Data()
 		return nil
@@ -233,7 +233,7 @@ func TestSimpleQueue_Subscribe_Error(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	q.Subscribe(func(msg Message[[]byte]) error {
+	q.Subscribe(ctx, func(ctx context.Context, msg Message[[]byte]) error {
 		defer wg.Done()
 		return testErr
 	})

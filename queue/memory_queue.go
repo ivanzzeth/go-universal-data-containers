@@ -203,27 +203,28 @@ func (q *MemoryQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 }
 
 func (q *MemoryQueue[T]) run() {
+	ctx := context.Background()
 Loop:
 	for {
 		select {
 		case <-q.exitChannel:
 			break Loop
 		default:
-			q.locker.Lock(context.Background())
+			q.locker.Lock(ctx)
 			if q.callbacks == nil {
-				q.locker.Unlock(context.Background())
+				q.locker.Unlock(ctx)
 				time.Sleep(q.config.PollInterval)
 				continue
 			}
-			q.locker.Unlock(context.Background())
+			q.locker.Unlock(ctx)
 
-			msg, err := q.Dequeue(context.TODO())
+			msg, err := q.Dequeue(ctx)
 			if err != nil {
 				time.Sleep(q.config.PollInterval)
 				continue Loop
 			}
 
-			q.TriggerCallbacks(msg)
+			q.TriggerCallbacks(ctx, msg)
 
 			// time.Sleep(q.config.PollInterval)
 		}

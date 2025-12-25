@@ -10,7 +10,7 @@ const (
 	Namespace     = "container::queue::"
 )
 
-type Handler[T any] func(msg Message[T]) error
+type Handler[T any] func(ctx context.Context, msg Message[T]) error
 
 type Kind uint8
 
@@ -72,7 +72,7 @@ type Queue[T any] interface {
 
 	// Subscribe queue with message confirmation.
 	// Once handler returns error, it'll automatically put message back to queue using `Recover` mechanism internally.
-	Subscribe(h Handler[T])
+	Subscribe(ctx context.Context, h Handler[T])
 
 	Close()
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
@@ -94,26 +95,77 @@ func (q *BaseQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 	return nil, common.ErrNotImplemented
 }
 
-func (q *BaseQueue[T]) Subscribe(cb Handler[T]) {
-	q.locker.Lock(context.Background())
-	defer q.locker.Unlock(context.Background())
+func (q *BaseQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
+	q.locker.Lock(ctx)
+	defer q.locker.Unlock(ctx)
 
 	q.callbacks = append(q.callbacks, cb)
 }
 
-func (q *BaseQueue[T]) TriggerCallbacks(msg Message[T]) {
+func (q *BaseQueue[T]) TriggerCallbacks(ctx context.Context, msg Message[T]) {
 	q.msgBuffer <- struct{}{}
 
 	go func() {
-		q.locker.Lock(context.Background())
-		callbacks := q.callbacks
-		q.locker.Unlock(context.Background())
+		defer func() { <-q.msgBuffer }()
 
-		for _, cb := range callbacks {
-			cb(msg)
+		q.locker.Lock(ctx)
+		callbacks := q.callbacks
+		q.locker.Unlock(ctx)
+
+		if !q.config.CallbackParallelExecution {
+			// Sequential mode (default)
+			for _, cb := range callbacks {
+				callbackCtx := ctx
+				if q.config.CallbackTimeout > 0 {
+					var cancel context.CancelFunc
+					callbackCtx, cancel = context.WithTimeout(ctx, q.config.CallbackTimeout)
+					defer cancel()
+				}
+				_ = cb(callbackCtx, msg) // Error isolation: one callback failure does not affect other callbacks
+			}
+			return
 		}
 
-		<-q.msgBuffer
+		// Parallel mode
+		var wg sync.WaitGroup
+		errors := make(chan error, len(callbacks))
+
+		for _, cb := range callbacks {
+			wg.Add(1)
+			go func(callback Handler[T]) {
+				defer wg.Done()
+
+				callbackCtx := ctx
+				if q.config.CallbackTimeout > 0 {
+					var cancel context.CancelFunc
+					callbackCtx, cancel = context.WithTimeout(ctx, q.config.CallbackTimeout)
+					defer cancel()
+				}
+
+				done := make(chan error, 1)
+				go func() {
+					done <- callback(callbackCtx, msg)
+				}()
+
+				select {
+				case err := <-done:
+					if err != nil {
+						errors <- err
+					}
+				case <-callbackCtx.Done():
+					errors <- fmt.Errorf("callback timeout after %v", q.config.CallbackTimeout)
+				}
+			}(cb)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		// Collect all errors (can be used for logging, but does not affect message processing status)
+		// Error isolation: one callback failure does not affect other callbacks
+		for err := range errors {
+			_ = err // Error collected, can be used for subsequent logging
+		}
 	}()
 }
 

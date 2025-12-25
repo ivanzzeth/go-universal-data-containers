@@ -22,6 +22,9 @@ var (
 
 		ConsumerCount: 1,
 
+		CallbackParallelExecution: false,
+		CallbackTimeout:           0,
+
 		MessageIDGenerator: message.GenerateRandomID,
 	}
 )
@@ -47,6 +50,15 @@ type Config struct {
 	// Be aware that too many consumers can cause order of messages to be changed.
 	// If you want to ensure the order of messages, please use FIFO queue and set ConsumerCount to 1
 	ConsumerCount int
+
+	// Enable parallel execution of callbacks. When true, all callbacks for a message
+	// will be executed concurrently in separate goroutines, improving throughput for
+	// slow handlers. When false (default), callbacks are executed sequentially.
+	CallbackParallelExecution bool
+
+	// Timeout for each callback execution. If set to 0 (default), no timeout is applied.
+	// When a callback exceeds this timeout, it will be cancelled and an error will be returned.
+	CallbackTimeout time.Duration
 
 	MessageIDGenerator message.MessageIDGenerator
 }
@@ -84,5 +96,17 @@ func WithConsumerCount(consumerCount int) func(*Config) {
 func WithMessageIDGenerator(generator message.MessageIDGenerator) func(*Config) {
 	return func(o *Config) {
 		o.MessageIDGenerator = generator
+	}
+}
+
+func WithCallbackParallelExecution(enable bool) func(*Config) {
+	return func(o *Config) {
+		o.CallbackParallelExecution = enable
+	}
+}
+
+func WithCallbackTimeout(timeout time.Duration) func(*Config) {
+	return func(o *Config) {
+		o.CallbackTimeout = timeout
 	}
 }

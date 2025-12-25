@@ -250,7 +250,7 @@ func (q *SimpleQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 	return data, nil
 }
 
-func (q *SimpleQueue[T]) Subscribe(cb Handler[T]) {
+func (q *SimpleQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
 	if logger := q.logIfEnabled(); logger != nil {
 		logger.Info().
 			Str("queue_name", q.Name()).
@@ -258,7 +258,7 @@ func (q *SimpleQueue[T]) Subscribe(cb Handler[T]) {
 			Msg("Subscribing to queue")
 	}
 
-	q.queue.Subscribe(func(msg Message[T]) error {
+	q.queue.Subscribe(ctx, func(ctx context.Context, msg Message[T]) error {
 		startTime := time.Now()
 		if logger := q.logIfEnabled(); logger != nil {
 			logger.Debug().
@@ -280,7 +280,7 @@ func (q *SimpleQueue[T]) Subscribe(cb Handler[T]) {
 			}
 		}()
 
-		err := q.handle(msg, cb)
+		err := q.handle(ctx, msg, cb)
 		if err != nil {
 			metrics.MetricQueueHandleErrorTotal.WithLabelValues(q.Name()).Inc()
 			if logger := q.logIfEnabled(); logger != nil {
@@ -313,7 +313,7 @@ func (q *SimpleQueue[T]) Subscribe(cb Handler[T]) {
 	}
 }
 
-func (q *SimpleQueue[T]) handle(msg Message[T], cb Handler[T]) (err error) {
+func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[T]) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			err = ErrQueueRecovered
@@ -337,7 +337,7 @@ func (q *SimpleQueue[T]) handle(msg Message[T], cb Handler[T]) (err error) {
 
 				var recoverErr error
 				for i := 0; i < DefaultMaxRetries; i++ {
-					recoverErr = queue.Recover(context.TODO(), msg)
+					recoverErr = queue.Recover(ctx, msg)
 					if recoverErr != nil {
 						backoff := time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond
 						if logger := q.logIfEnabled(); logger != nil {
@@ -382,7 +382,7 @@ func (q *SimpleQueue[T]) handle(msg Message[T], cb Handler[T]) (err error) {
 		}
 	}()
 
-	err = cb(msg)
+	err = cb(ctx, msg)
 	if err != nil {
 		if logger := q.logIfEnabled(); logger != nil {
 			logger.Warn().
@@ -403,7 +403,7 @@ func (q *SimpleQueue[T]) handle(msg Message[T], cb Handler[T]) (err error) {
 
 			var recoverErr error
 			for i := 0; i < DefaultMaxRetries; i++ {
-				recoverErr = q.Recover(context.TODO(), msg)
+				recoverErr = q.Recover(ctx, msg)
 				if recoverErr != nil {
 					backoff := time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond
 					if logger := q.logIfEnabled(); logger != nil {
