@@ -18,23 +18,39 @@ import (
 
 // Performance Analysis Summary (based on benchmark results):
 //
+// IMPORTANT: Understanding ConsumerCount behavior
+//
+// ConsumerCount controls the maximum number of CONCURRENT handler goroutines that can process
+// messages at the same time. This is implemented via a buffered channel (msgBuffer) in TriggerCallbacks:
+//
+//   - When a message is dequeued, TriggerCallbacks is called
+//   - It tries to send to msgBuffer (blocks if buffer is full = ConsumerCount limit reached)
+//   - Then starts a goroutine to execute all registered callbacks for that message
+//   - After callbacks complete, it receives from msgBuffer to free up a slot
+//
+// Key Points:
+// 1. Each message is processed by ALL registered callbacks (not distributed across consumers)
+// 2. ConsumerCount limits how many DIFFERENT messages can be processed concurrently
+// 3. Individual message processing time = handler_delay (constant, regardless of ConsumerCount)
+// 4. With ConsumerCount=3, up to 3 messages can be processed in parallel
+// 5. With ConsumerCount=10, up to 10 messages can be processed in parallel
+//
+// Benchmark Results Interpretation:
+// - "per operation" time in benchmarks = total_time_for_all_messages / N
+// - With more consumers, multiple messages process in parallel, so total time decreases
+// - This makes "per operation" time appear lower, but individual message time is unchanged
+//
 // MemoryQueue Subscribe Performance:
 // - No delay: ~11µs/op (queue overhead only)
-// - 1ms handler delay (3 consumers): ~396µs/op (≈ handler_delay / consumer_count)
-// - 1ms handler delay (1 consumer): ~1.1ms/op (≈ handler_delay)
-// - 1ms handler delay (10 consumers): ~129µs/op (≈ handler_delay / consumer_count)
-//
-// Key Insights:
-// 1. Queue overhead is minimal (~11µs for MemoryQueue, ~68µs for RedisQueue)
-// 2. Total time ≈ handler_delay / consumer_count (when handler is the bottleneck)
-// 3. Increasing ConsumerCount significantly improves throughput for slow handlers
-// 4. For fast handlers (<100µs), multiple consumers may add unnecessary overhead
+// - 1ms handler delay, 1 consumer: ~1.17ms/op (serial: 1 message at a time)
+// - 1ms handler delay, 3 consumers: ~0.40ms/op (parallel: 3 messages at a time)
+// - 1ms handler delay, 10 consumers: ~0.13ms/op (parallel: 10 messages at a time)
 //
 // Optimization Recommendations:
-// 1. For handlers with >1ms processing time: Increase ConsumerCount (e.g., 10-20)
-// 2. For handlers with <100µs processing time: Use fewer consumers (e.g., 1-3)
-// 3. Consider dynamic consumer scaling based on queue depth and handler latency
-// 4. Monitor queue depth and adjust ConsumerCount based on workload characteristics
+// 1. ConsumerCount should match expected concurrent message processing needs
+// 2. For handlers with >1ms processing time: Increase ConsumerCount to process multiple messages in parallel
+// 3. For handlers with <100µs processing time: Fewer consumers may be sufficient
+// 4. Monitor queue depth and adjust ConsumerCount based on message arrival rate vs processing rate
 
 // QueueFactory is a function type for creating SafeQueue instances for benchmarking
 type QueueFactory func(name string) (SafeQueue[[]byte], error)
@@ -210,12 +226,18 @@ func SpecBenchmarkSubscribe(b *testing.B, factory QueueFactory) {
 }
 
 // SpecBenchmarkSubscribeWithHandlerDelay benchmarks Subscribe with configurable handler delay
-// This helps analyze the impact of handler processing time on overall queue performance.
+// This helps analyze the impact of handler processing time on overall queue throughput.
+//
+// IMPORTANT: The benchmark measures total time for all messages to be processed.
+// With multiple consumers (ConsumerCount > 1), messages are processed in parallel,
+// so the "per operation" time appears lower, but individual message processing time
+// remains constant (handler_delay).
+//
 // Key insights:
 // - Queue overhead is minimal (~12µs for MemoryQueue, ~68µs for RedisQueue)
-// - Total time ≈ handler delay / consumer count (when handler is the bottleneck)
-// - Increasing ConsumerCount significantly improves throughput for slow handlers
-// - For fast handlers (<100µs), multiple consumers may add unnecessary overhead
+// - Individual message processing time = handler_delay (constant, regardless of ConsumerCount)
+// - ConsumerCount enables parallel processing, improving overall throughput
+// - Benchmark "per operation" time decreases because multiple messages are processed concurrently
 func SpecBenchmarkSubscribeWithHandlerDelay(b *testing.B, factory QueueFactory, handlerDelay time.Duration) {
 	q, err := factory("bench-subscribe")
 	require.NoError(b, err)
