@@ -9,28 +9,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ivanzzeth/go-universal-data-containers/locker"
+	"github.com/alicebob/miniredis/v2"
+	redis "github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// BenchmarkSimpleQueueEnqueue benchmarks the Enqueue operation
-func BenchmarkSimpleQueueEnqueue(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-enqueue", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
-	require.NoError(b, err)
-	defer mq.Close()
+// QueueFactory is a function type for creating SafeQueue instances for benchmarking
+type QueueFactory func(name string) (SafeQueue[[]byte], error)
 
-	q, err := NewSimpleQueue(mq)
+// benchmarkOptions returns standard benchmark configuration as Option slice
+func benchmarkOptions() []Option {
+	return []Option{
+		WithMaxSize(UnlimitedSize),
+		WithMaxHandleFailures(3),
+		WithPollInterval(DefaultPollInterval),
+		WithMaxRetries(DefaultMaxRetries),
+		WithConsumerCount(3),
+		WithMessageIDGenerator(DefaultOptions.MessageIDGenerator),
+	}
+}
+
+// SpecBenchmarkEnqueue benchmarks the Enqueue operation
+func SpecBenchmarkEnqueue(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-enqueue")
 	require.NoError(b, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -46,22 +51,11 @@ func BenchmarkSimpleQueueEnqueue(b *testing.B) {
 	}
 }
 
-// BenchmarkSimpleQueueDequeue benchmarks the Dequeue operation
-func BenchmarkSimpleQueueDequeue(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-dequeue", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecBenchmarkDequeue benchmarks the Dequeue operation
+func SpecBenchmarkDequeue(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-dequeue")
 	require.NoError(b, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(b, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -85,22 +79,11 @@ func BenchmarkSimpleQueueDequeue(b *testing.B) {
 	}
 }
 
-// BenchmarkSimpleQueueEnqueueDequeue benchmarks Enqueue+Dequeue cycle
-func BenchmarkSimpleQueueEnqueueDequeue(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-cycle", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecBenchmarkEnqueueDequeue benchmarks Enqueue+Dequeue cycle
+func SpecBenchmarkEnqueueDequeue(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-cycle")
 	require.NoError(b, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(b, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -120,23 +103,19 @@ func BenchmarkSimpleQueueEnqueueDequeue(b *testing.B) {
 	}
 }
 
-// BenchmarkSimpleQueueEnqueueWithLogger benchmarks Enqueue with logger
-func BenchmarkSimpleQueueEnqueueWithLogger(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-enqueue-logger", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecBenchmarkEnqueueWithLogger benchmarks Enqueue with logger
+func SpecBenchmarkEnqueueWithLogger(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-enqueue-logger")
 	require.NoError(b, err)
-	defer mq.Close()
+	defer q.Close()
 
-	logger := zerolog.New(os.Stderr).Level(zerolog.Disabled) // Disable logging for benchmark
-	q, err := NewSimpleQueue(mq, WithLogger(&logger))
-	require.NoError(b, err)
+	// Add logger to existing queue (if it's a SimpleQueue, we can unwrap it)
+	if sq, ok := q.(*SimpleQueue[[]byte]); ok {
+		logger := zerolog.New(os.Stderr).Level(zerolog.Disabled) // Disable logging for benchmark
+		qWithLogger, err := NewSimpleQueue(sq.Unwrap(), WithLogger(&logger))
+		require.NoError(b, err)
+		q = qWithLogger
+	}
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -152,22 +131,11 @@ func BenchmarkSimpleQueueEnqueueWithLogger(b *testing.B) {
 	}
 }
 
-// BenchmarkSimpleQueueConcurrentEnqueue benchmarks concurrent Enqueue
-func BenchmarkSimpleQueueConcurrentEnqueue(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-concurrent-enqueue", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecBenchmarkConcurrentEnqueue benchmarks concurrent Enqueue
+func SpecBenchmarkConcurrentEnqueue(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-concurrent-enqueue")
 	require.NoError(b, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(b, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -185,22 +153,11 @@ func BenchmarkSimpleQueueConcurrentEnqueue(b *testing.B) {
 	})
 }
 
-// BenchmarkSimpleQueueConcurrentDequeue benchmarks concurrent Dequeue
-func BenchmarkSimpleQueueConcurrentDequeue(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-concurrent-dequeue", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecBenchmarkConcurrentDequeue benchmarks concurrent Dequeue
+func SpecBenchmarkConcurrentDequeue(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-concurrent-dequeue")
 	require.NoError(b, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(b, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -227,32 +184,19 @@ func BenchmarkSimpleQueueConcurrentDequeue(b *testing.B) {
 	})
 }
 
-// BenchmarkSimpleQueueSubscribe benchmarks Subscribe message handling
-func BenchmarkSimpleQueueSubscribe(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-subscribe", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecBenchmarkSubscribe benchmarks Subscribe message handling
+func SpecBenchmarkSubscribe(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-subscribe")
 	require.NoError(b, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(b, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
 
-	var processedCount int64
 	var wg sync.WaitGroup
 
 	// Subscribe with handler
 	q.Subscribe(func(msg Message[[]byte]) error {
-		atomic.AddInt64(&processedCount, 1)
 		wg.Done() // Signal that this message is processed
 		return nil
 	})
@@ -276,22 +220,11 @@ func BenchmarkSimpleQueueSubscribe(b *testing.B) {
 	wg.Wait()
 }
 
-// BenchmarkSimpleQueueSubscribeWithError benchmarks Subscribe with error handling
-func BenchmarkSimpleQueueSubscribeWithError(b *testing.B) {
-	mq, err := NewMemoryQueue("bench-subscribe-error", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecBenchmarkSubscribeWithError benchmarks Subscribe with error handling
+func SpecBenchmarkSubscribeWithError(b *testing.B, factory QueueFactory) {
+	q, err := factory("bench-subscribe-error")
 	require.NoError(b, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(b, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -330,22 +263,109 @@ func BenchmarkSimpleQueueSubscribeWithError(b *testing.B) {
 	wg.Wait()
 }
 
-// TestSimpleQueuePerformanceSubscribe tests that Subscribe completes within 20us
-func TestSimpleQueuePerformanceSubscribe(t *testing.T) {
-	mq, err := NewMemoryQueue("perf-subscribe", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecTestPerformanceEnqueue tests that Enqueue completes within threshold
+// threshold is optional, defaults to 20us for memory queues, 100us for Redis queues
+func SpecTestPerformanceEnqueue(t *testing.T, factory QueueFactory, threshold ...time.Duration) {
+	q, err := factory("perf-enqueue")
 	require.NoError(t, err)
-	defer mq.Close()
+	defer q.Close()
 
-	q, err := NewSimpleQueue(mq)
+	data := []byte("test message")
+	ctx := context.Background()
+
+	iterations := 1000
+	start := time.Now()
+
+	for i := 0; i < iterations; i++ {
+		err := q.Enqueue(ctx, data)
+		require.NoError(t, err)
+	}
+
+	duration := time.Since(start)
+	avgDuration := duration / time.Duration(iterations)
+
+	thresh := 20 * time.Microsecond
+	if len(threshold) > 0 {
+		thresh = threshold[0]
+	}
+
+	t.Logf("Enqueue performance: %d iterations in %v, avg: %v per operation", iterations, duration, avgDuration)
+	assert.Less(t, avgDuration, thresh, "Enqueue should complete within %v on average", thresh)
+}
+
+// SpecTestPerformanceDequeue tests that Dequeue completes within threshold
+// threshold is optional, defaults to 20us for memory queues, 100us for Redis queues
+func SpecTestPerformanceDequeue(t *testing.T, factory QueueFactory, threshold ...time.Duration) {
+	q, err := factory("perf-dequeue")
 	require.NoError(t, err)
+	defer q.Close()
+
+	data := []byte("test message")
+	ctx := context.Background()
+
+	iterations := 1000
+	// Pre-fill queue
+	for i := 0; i < iterations; i++ {
+		err := q.Enqueue(ctx, data)
+		require.NoError(t, err)
+	}
+
+	start := time.Now()
+
+	for i := 0; i < iterations; i++ {
+		_, err := q.Dequeue(ctx)
+		require.NoError(t, err)
+	}
+
+	duration := time.Since(start)
+	avgDuration := duration / time.Duration(iterations)
+
+	thresh := 20 * time.Microsecond
+	if len(threshold) > 0 {
+		thresh = threshold[0]
+	}
+
+	t.Logf("Dequeue performance: %d iterations in %v, avg: %v per operation", iterations, duration, avgDuration)
+	assert.Less(t, avgDuration, thresh, "Dequeue should complete within %v on average", thresh)
+}
+
+// SpecTestPerformanceCycle tests that Enqueue+Dequeue cycle completes within threshold
+// threshold is optional, defaults to 20us for memory queues, 200us for Redis queues
+func SpecTestPerformanceCycle(t *testing.T, factory QueueFactory, threshold ...time.Duration) {
+	q, err := factory("perf-cycle")
+	require.NoError(t, err)
+	defer q.Close()
+
+	data := []byte("test message")
+	ctx := context.Background()
+
+	iterations := 1000
+	start := time.Now()
+
+	for i := 0; i < iterations; i++ {
+		err := q.Enqueue(ctx, data)
+		require.NoError(t, err)
+		_, err = q.Dequeue(ctx)
+		require.NoError(t, err)
+	}
+
+	duration := time.Since(start)
+	avgDuration := duration / time.Duration(iterations)
+
+	thresh := 20 * time.Microsecond
+	if len(threshold) > 0 {
+		thresh = threshold[0]
+	}
+
+	t.Logf("Enqueue+Dequeue cycle performance: %d iterations in %v, avg: %v per cycle", iterations, duration, avgDuration)
+	assert.Less(t, avgDuration, thresh, "Enqueue+Dequeue cycle should complete within %v on average", thresh)
+}
+
+// SpecTestPerformanceSubscribe tests that Subscribe completes within 20ms
+func SpecTestPerformanceSubscribe(t *testing.T, factory QueueFactory) {
+	q, err := factory("perf-subscribe")
+	require.NoError(t, err)
+	defer q.Close()
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -410,22 +430,20 @@ func TestSimpleQueuePerformanceSubscribe(t *testing.T) {
 	assert.Less(t, avgDuration, 20*time.Millisecond, "Subscribe (enqueue to consume) should complete within 20ms on average")
 }
 
-// TestSimpleQueuePerformanceEnqueue tests that Enqueue completes within 20us
-func TestSimpleQueuePerformanceEnqueue(t *testing.T) {
-	mq, err := NewMemoryQueue("perf-enqueue", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
+// SpecTestPerformanceWithLogger tests performance with logger enabled
+// threshold is optional, defaults to 30us for memory queues, 150us for Redis queues
+func SpecTestPerformanceWithLogger(t *testing.T, factory QueueFactory, threshold ...time.Duration) {
+	q, err := factory("perf-logger")
 	require.NoError(t, err)
-	defer mq.Close()
+	defer q.Close()
 
-	q, err := NewSimpleQueue(mq)
-	require.NoError(t, err)
+	// Add logger to existing queue (if it's a SimpleQueue, we can unwrap it)
+	if sq, ok := q.(*SimpleQueue[[]byte]); ok {
+		logger := zerolog.New(os.Stderr).Level(zerolog.InfoLevel)
+		qWithLogger, err := NewSimpleQueue(sq.Unwrap(), WithLogger(&logger))
+		require.NoError(t, err)
+		q = qWithLogger
+	}
 
 	data := []byte("test message")
 	ctx := context.Background()
@@ -441,121 +459,385 @@ func TestSimpleQueuePerformanceEnqueue(t *testing.T) {
 	duration := time.Since(start)
 	avgDuration := duration / time.Duration(iterations)
 
-	t.Logf("Enqueue performance: %d iterations in %v, avg: %v per operation", iterations, duration, avgDuration)
-	assert.Less(t, avgDuration, 20*time.Microsecond, "Enqueue should complete within 20us on average")
-}
-
-// TestSimpleQueuePerformanceDequeue tests that Dequeue completes within 20us
-func TestSimpleQueuePerformanceDequeue(t *testing.T) {
-	mq, err := NewMemoryQueue("perf-dequeue", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
-	require.NoError(t, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(t, err)
-
-	data := []byte("test message")
-	ctx := context.Background()
-
-	iterations := 1000
-	// Pre-fill queue
-	for i := 0; i < iterations; i++ {
-		err := q.Enqueue(ctx, data)
-		require.NoError(t, err)
+	thresh := 30 * time.Microsecond
+	if len(threshold) > 0 {
+		thresh = threshold[0]
 	}
-
-	start := time.Now()
-
-	for i := 0; i < iterations; i++ {
-		_, err := q.Dequeue(ctx)
-		require.NoError(t, err)
-	}
-
-	duration := time.Since(start)
-	avgDuration := duration / time.Duration(iterations)
-
-	t.Logf("Dequeue performance: %d iterations in %v, avg: %v per operation", iterations, duration, avgDuration)
-	assert.Less(t, avgDuration, 20*time.Microsecond, "Dequeue should complete within 20us on average")
-}
-
-// TestSimpleQueuePerformanceCycle tests that Enqueue+Dequeue cycle completes within 20us
-func TestSimpleQueuePerformanceCycle(t *testing.T) {
-	mq, err := NewMemoryQueue("perf-cycle", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
-	require.NoError(t, err)
-	defer mq.Close()
-
-	q, err := NewSimpleQueue(mq)
-	require.NoError(t, err)
-
-	data := []byte("test message")
-	ctx := context.Background()
-
-	iterations := 1000
-	start := time.Now()
-
-	for i := 0; i < iterations; i++ {
-		err := q.Enqueue(ctx, data)
-		require.NoError(t, err)
-		_, err = q.Dequeue(ctx)
-		require.NoError(t, err)
-	}
-
-	duration := time.Since(start)
-	avgDuration := duration / time.Duration(iterations)
-
-	t.Logf("Enqueue+Dequeue cycle performance: %d iterations in %v, avg: %v per cycle", iterations, duration, avgDuration)
-	assert.Less(t, avgDuration, 20*time.Microsecond, "Enqueue+Dequeue cycle should complete within 20us on average")
-}
-
-// TestSimpleQueuePerformanceWithLogger tests performance with logger enabled
-func TestSimpleQueuePerformanceWithLogger(t *testing.T) {
-	mq, err := NewMemoryQueue("perf-logger", NewJsonMessage([]byte{}), func(c *Config) {
-		c.LockerGenerator = locker.NewMemoryLockerGenerator()
-		c.MaxSize = UnlimitedSize
-		c.MaxHandleFailures = 3
-		c.PollInterval = DefaultPollInterval
-		c.MaxRetries = DefaultMaxRetries
-		c.ConsumerCount = 3
-		c.MessageIDGenerator = DefaultOptions.MessageIDGenerator
-	})
-	require.NoError(t, err)
-	defer mq.Close()
-
-	logger := zerolog.New(os.Stderr).Level(zerolog.InfoLevel)
-	q, err := NewSimpleQueue(mq, WithLogger(&logger))
-	require.NoError(t, err)
-
-	data := []byte("test message")
-	ctx := context.Background()
-
-	iterations := 1000
-	start := time.Now()
-
-	for i := 0; i < iterations; i++ {
-		err := q.Enqueue(ctx, data)
-		require.NoError(t, err)
-	}
-
-	duration := time.Since(start)
-	avgDuration := duration / time.Duration(iterations)
 
 	t.Logf("Enqueue with logger performance: %d iterations in %v, avg: %v per operation", iterations, duration, avgDuration)
-	// With logger, we allow slightly more time (30us) as logging has overhead
-	assert.Less(t, avgDuration, 30*time.Microsecond, "Enqueue with logger should complete within 30us on average")
+	assert.Less(t, avgDuration, thresh, "Enqueue with logger should complete within %v on average", thresh)
+}
+
+// ========== MemoryQueue Benchmarks ==========
+
+func BenchmarkMemoryQueueEnqueue(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkEnqueue(b, factory)
+}
+
+func BenchmarkMemoryQueueDequeue(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkDequeue(b, factory)
+}
+
+func BenchmarkMemoryQueueEnqueueDequeue(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkEnqueueDequeue(b, factory)
+}
+
+func BenchmarkMemoryQueueEnqueueWithLogger(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkEnqueueWithLogger(b, factory)
+}
+
+func BenchmarkMemoryQueueConcurrentEnqueue(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkConcurrentEnqueue(b, factory)
+}
+
+func BenchmarkMemoryQueueConcurrentDequeue(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkConcurrentDequeue(b, factory)
+}
+
+func BenchmarkMemoryQueueSubscribe(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkSubscribe(b, factory)
+}
+
+func BenchmarkMemoryQueueSubscribeWithError(b *testing.B) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecBenchmarkSubscribeWithError(b, factory)
+}
+
+// ========== RedisQueue Benchmarks ==========
+
+func BenchmarkRedisQueueEnqueue(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkEnqueue(b, factory)
+}
+
+func BenchmarkRedisQueueDequeue(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkDequeue(b, factory)
+}
+
+func BenchmarkRedisQueueEnqueueDequeue(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkEnqueueDequeue(b, factory)
+}
+
+func BenchmarkRedisQueueEnqueueWithLogger(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkEnqueueWithLogger(b, factory)
+}
+
+func BenchmarkRedisQueueConcurrentEnqueue(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkConcurrentEnqueue(b, factory)
+}
+
+func BenchmarkRedisQueueConcurrentDequeue(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkConcurrentDequeue(b, factory)
+}
+
+func BenchmarkRedisQueueSubscribe(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkSubscribe(b, factory)
+}
+
+func BenchmarkRedisQueueSubscribeWithError(b *testing.B) {
+	s := miniredis.RunT(b)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecBenchmarkSubscribeWithError(b, factory)
+}
+
+// ========== Performance Tests ==========
+
+func TestMemoryQueuePerformanceEnqueue(t *testing.T) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecTestPerformanceEnqueue(t, factory)
+}
+
+func TestMemoryQueuePerformanceDequeue(t *testing.T) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecTestPerformanceDequeue(t, factory)
+}
+
+func TestMemoryQueuePerformanceCycle(t *testing.T) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecTestPerformanceCycle(t, factory)
+}
+
+func TestMemoryQueuePerformanceSubscribe(t *testing.T) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecTestPerformanceSubscribe(t, factory)
+}
+
+func TestMemoryQueuePerformanceWithLogger(t *testing.T) {
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		mq, err := NewMemoryQueue(name, NewJsonMessage([]byte{}), benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return NewSimpleQueue(mq)
+	}
+	SpecTestPerformanceWithLogger(t, factory)
+}
+
+func TestRedisQueuePerformanceEnqueue(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	// Redis operations involve network I/O, so we use a more lenient threshold (100us)
+	SpecTestPerformanceEnqueue(t, factory, 100*time.Microsecond)
+}
+
+func TestRedisQueuePerformanceDequeue(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	// Redis operations involve network I/O, so we use a more lenient threshold (100us)
+	SpecTestPerformanceDequeue(t, factory, 100*time.Microsecond)
+}
+
+func TestRedisQueuePerformanceCycle(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	// Redis operations involve network I/O, so we use a more lenient threshold (200us)
+	SpecTestPerformanceCycle(t, factory, 200*time.Microsecond)
+}
+
+func TestRedisQueuePerformanceSubscribe(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	SpecTestPerformanceSubscribe(t, factory)
+}
+
+func TestRedisQueuePerformanceWithLogger(t *testing.T) {
+	s := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{
+		Addr: s.Addr(),
+	})
+
+	factory := func(name string) (SafeQueue[[]byte], error) {
+		f := NewRedisQueueFactory(rdb, NewJsonMessage([]byte{}))
+		q, err := f.GetOrCreateSafe(name, benchmarkOptions()...)
+		if err != nil {
+			return nil, err
+		}
+		return q, nil
+	}
+	// Redis operations involve network I/O, so we use a more lenient threshold (150us)
+	SpecTestPerformanceWithLogger(t, factory, 150*time.Microsecond)
 }
