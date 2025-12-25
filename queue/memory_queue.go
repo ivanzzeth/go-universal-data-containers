@@ -148,6 +148,8 @@ func (q *MemoryQueue[T]) BEnqueue(ctx context.Context, data T) error {
 
 				return err
 			}
+
+			return nil
 		}
 	}
 }
