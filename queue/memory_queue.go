@@ -212,7 +212,7 @@ Loop:
 			q.locker.Lock(context.Background())
 			if q.callbacks == nil {
 				q.locker.Unlock(context.Background())
-				time.Sleep(100 * time.Millisecond)
+				time.Sleep(q.config.PollInterval)
 				continue
 			}
 			q.locker.Unlock(context.Background())
@@ -225,7 +225,7 @@ Loop:
 
 			q.TriggerCallbacks(msg)
 
-			time.Sleep(q.config.PollInterval)
+			// time.Sleep(q.config.PollInterval)
 		}
 	}
 }
