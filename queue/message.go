@@ -118,7 +118,24 @@ func (m *JsonMessage[T]) CreatedAt() time.Time {
 	}
 
 	if created, ok := m.Metadata()["created_at"]; ok {
-		return created.(time.Time)
+		switch v := created.(type) {
+		case time.Time:
+			return v
+		case string:
+			// Handle JSON deserialized time as string
+			t, err := time.Parse(time.RFC3339Nano, v)
+			if err != nil {
+				// Try RFC3339 format as fallback
+				t, err = time.Parse(time.RFC3339, v)
+				if err != nil {
+					return time.Time{}
+				}
+			}
+			return t
+		default:
+			// Try to convert to time.Time if it's a numeric timestamp
+			return time.Time{}
+		}
 	}
 
 	return time.Time{}
@@ -130,7 +147,24 @@ func (m *JsonMessage[T]) UpdatedAt() time.Time {
 	}
 
 	if updated, ok := m.Metadata()["updated_at"]; ok {
-		return updated.(time.Time)
+		switch v := updated.(type) {
+		case time.Time:
+			return v
+		case string:
+			// Handle JSON deserialized time as string
+			t, err := time.Parse(time.RFC3339Nano, v)
+			if err != nil {
+				// Try RFC3339 format as fallback
+				t, err = time.Parse(time.RFC3339, v)
+				if err != nil {
+					return time.Time{}
+				}
+			}
+			return t
+		default:
+			// Try to convert to time.Time if it's a numeric timestamp
+			return time.Time{}
+		}
 	}
 
 	return time.Time{}
