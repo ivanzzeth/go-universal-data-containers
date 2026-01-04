@@ -139,7 +139,7 @@ func (q *SimpleQueue[T]) Enqueue(ctx context.Context, data T) error {
 	}
 
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Str("queue_kind", q.kindString()).
 			Msg("Message enqueued successfully")
@@ -297,7 +297,7 @@ func (q *SimpleQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
 		metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
 		metrics.MetricQueueHandleSuccessulTotal.WithLabelValues(q.Name()).Inc()
 		if logger := q.logIfEnabled(); logger != nil {
-			logger.Info().
+			logger.Debug().
 				Str("queue_name", q.Name()).
 				Int("retry_count", msg.RetryCount()).
 				Int("total_retry_count", msg.TotalRetryCount()).

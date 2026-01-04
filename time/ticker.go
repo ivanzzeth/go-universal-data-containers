@@ -92,7 +92,8 @@ func (d *DistributedTicker) Tick() <-chan time.Time {
 func (d *DistributedTicker) run() {
 	go func() {
 		// log.Printf("Subscribe to ticker queue, ticker %p, queue: %p\n", d, d.q)
-		d.q.Subscribe(func(msg queue.Message[time.Time]) error {
+		ctx := context.Background()
+		d.q.Subscribe(ctx, func(ctx context.Context, msg queue.Message[time.Time]) error {
 			// log.Printf("Received tick, ticker %p, queue: %p\n", d, d.q)
 			select {
 			case d.tickOut <- time.Now():
