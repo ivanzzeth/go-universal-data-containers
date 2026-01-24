@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
@@ -317,9 +318,11 @@ func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[
 	defer func() {
 		if r := recover(); r != nil {
 			err = ErrQueueRecovered
+			stackTrace := string(debug.Stack())
 			if logger := q.logIfEnabled(); logger != nil {
 				logger.Error().
 					Interface("panic_value", r).
+					Str("stack_trace", stackTrace).
 					Str("queue_name", q.Name()).
 					Int("retry_count", msg.RetryCount()).
 					Int("total_retry_count", msg.TotalRetryCount()).
