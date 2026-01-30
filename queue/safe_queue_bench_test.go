@@ -197,6 +197,19 @@ func SpecBenchmarkConcurrentEnqueue(b *testing.B, factory QueueFactory) {
 	data := []byte("test message")
 	ctx := context.Background()
 
+	// Start a consumer goroutine to drain the queue and prevent it from getting full
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				_, _ = q.Dequeue(ctx)
+			}
+		}
+	}()
+
 	b.ResetTimer()
 	b.ReportAllocs()
 
@@ -204,10 +217,17 @@ func SpecBenchmarkConcurrentEnqueue(b *testing.B, factory QueueFactory) {
 		for pb.Next() {
 			err := q.Enqueue(ctx, data)
 			if err != nil {
+				if errors.Is(err, ErrQueueFull) {
+					// Queue might be momentarily full, retry
+					continue
+				}
 				b.Fatal(err)
 			}
 		}
 	})
+
+	b.StopTimer()
+	close(done)
 }
 
 // SpecBenchmarkConcurrentDequeue benchmarks concurrent Dequeue
@@ -219,10 +239,21 @@ func SpecBenchmarkConcurrentDequeue(b *testing.B, factory QueueFactory) {
 	data := []byte("test message")
 	ctx := context.Background()
 
-	// Pre-fill queue with enough items
-	for i := 0; i < b.N*10; i++ {
+	// Pre-fill queue with items, capped at a reasonable size to avoid exceeding capacity
+	// Use min(b.N*10, 100000) to prevent overflow on large b.N values
+	prefillCount := b.N * 10
+	maxPrefill := 100000
+	if prefillCount > maxPrefill {
+		prefillCount = maxPrefill
+	}
+
+	for i := 0; i < prefillCount; i++ {
 		err := q.Enqueue(ctx, data)
 		if err != nil {
+			if errors.Is(err, ErrQueueFull) {
+				// Queue is full, stop pre-filling
+				break
+			}
 			b.Fatal(err)
 		}
 	}

@@ -32,7 +32,15 @@ func (q *BaseDLQ[T]) Redrive(ctx context.Context, items int) error {
 			return nil
 		}
 
-		err = q.associatedQueue.Enqueue(ctx, msg.Data())
+		// Try to enqueue to retry queue for priority processing
+		// If the associated queue supports RetryQueueEnqueuer, use it
+		if retryEnqueuer, ok := q.associatedQueue.(RetryQueueEnqueuer[T]); ok {
+			err = retryEnqueuer.EnqueueToRetryQueue(ctx, msg.Data())
+		} else {
+			// Fallback to normal enqueue
+			err = q.associatedQueue.Enqueue(ctx, msg.Data())
+		}
+
 		if err != nil {
 			return err
 		}

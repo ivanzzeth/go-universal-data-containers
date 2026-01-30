@@ -8,15 +8,19 @@ import (
 )
 
 var (
-	DefaultPollInterval = 10 * time.Millisecond
-	DefaultMaxRetries   = 10
-	DefaultOptions      = Config{
+	DefaultPollInterval       = 10 * time.Millisecond
+	DefaultMaxRetries         = 10
+	DefaultUnlimitedCapacity  = 1000000
+	DefaultRetryQueueCapacity = 10000
+	DefaultOptions            = Config{
 		LockerGenerator: locker.NewMemoryLockerGenerator(),
 
 		MaxSize: UnlimitedSize,
 
 		MaxHandleFailures: 10,
 
+		// PollInterval is used by RedisQueue for BEnqueue polling when queue is full.
+		// MemoryQueue uses channel-based blocking and does not use this for normal operations.
 		PollInterval: DefaultPollInterval,
 		MaxRetries:   DefaultMaxRetries,
 
@@ -26,12 +30,19 @@ var (
 		CallbackTimeout:           0,
 
 		MessageIDGenerator: message.GenerateRandomID,
+
+		// UnlimitedCapacity is the channel buffer size when MaxSize is UnlimitedSize.
+		// Only applies to MemoryQueue.
+		UnlimitedCapacity: DefaultUnlimitedCapacity,
+
+		// RetryQueueCapacity is the buffer size for retry queue (used by Recover).
+		RetryQueueCapacity: DefaultRetryQueueCapacity,
 	}
 )
 
 type Option func(*Config)
 
-// Configuarable options here, but some implementations of queue may not support all options
+// Configurable options here, but some implementations of queue may not support all options
 type Config struct {
 	LockerGenerator locker.SyncLockerGenerator
 
@@ -41,6 +52,8 @@ type Config struct {
 	// pushed to DLQ if DLQ is supported
 	MaxHandleFailures int
 
+	// PollInterval is used by RedisQueue for BEnqueue polling when queue is full.
+	// MemoryQueue uses channel-based event-driven model and does not rely on polling.
 	PollInterval time.Duration
 
 	// Used for internal retrying, not for message retrying
@@ -61,6 +74,15 @@ type Config struct {
 	CallbackTimeout time.Duration
 
 	MessageIDGenerator message.MessageIDGenerator
+
+	// UnlimitedCapacity is the channel buffer size when MaxSize is UnlimitedSize.
+	// Only applies to MemoryQueue. Default is 1000000.
+	UnlimitedCapacity int
+
+	// RetryQueueCapacity is the buffer size for retry queue (used by Recover).
+	// Messages in retry queue are processed with higher priority than normal queue.
+	// Default is 10000.
+	RetryQueueCapacity int
 }
 
 func WithMaxSize(maxSize int) func(*Config) {
@@ -108,5 +130,17 @@ func WithCallbackParallelExecution(enable bool) func(*Config) {
 func WithCallbackTimeout(timeout time.Duration) func(*Config) {
 	return func(o *Config) {
 		o.CallbackTimeout = timeout
+	}
+}
+
+func WithUnlimitedCapacity(capacity int) func(*Config) {
+	return func(o *Config) {
+		o.UnlimitedCapacity = capacity
+	}
+}
+
+func WithRetryQueueCapacity(capacity int) func(*Config) {
+	return func(o *Config) {
+		o.RetryQueueCapacity = capacity
 	}
 }

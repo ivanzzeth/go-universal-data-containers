@@ -104,8 +104,16 @@ type DLQer[T any] interface {
 type DLQ[T any] interface {
 	Queue[T]
 
-	// Push `items` of messages to associated Queue
+	// Push `items` of messages to associated Queue's retry queue
+	// Messages will be processed with higher priority than normal queue
 	Redrive(ctx context.Context, items int) error
 
 	AssociatedQueue() Queue[T]
+}
+
+// RetryQueueEnqueuer is an optional interface for queues that support
+// enqueueing directly to the retry queue for priority processing.
+// Used by DLQ.Redrive to ensure recovered messages are processed first.
+type RetryQueueEnqueuer[T any] interface {
+	EnqueueToRetryQueue(ctx context.Context, data T) error
 }

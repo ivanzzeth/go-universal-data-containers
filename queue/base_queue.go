@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
@@ -21,10 +22,16 @@ type BaseQueue[T any] struct {
 
 	defaultMsg Message[T]
 	config     *Config
-	callbacks  []Handler[T]
+
+	// callbacks stored using atomic.Value for lock-free read access
+	// The stored value is []Handler[T]
+	callbacksAtomic atomic.Value
+
+	// callbacksMu protects write operations to callbacksAtomic
+	callbacksMu sync.Mutex
 
 	msgBuffer   chan struct{}
-	exitChannel chan int
+	exitChannel chan struct{}
 
 	dlq DLQ[T]
 }
@@ -45,14 +52,33 @@ func NewBaseQueue[T any](name string, defaultMsg Message[T], options ...Option) 
 		defaultMsg:  defaultMsg,
 		config:      &ops,
 		msgBuffer:   make(chan struct{}, ops.ConsumerCount),
-		exitChannel: make(chan int),
+		exitChannel: make(chan struct{}),
 	}
 
 	return q, nil
 }
 
 func (q *BaseQueue[T]) Close() {
-	close(q.exitChannel)
+	select {
+	case <-q.exitChannel:
+		// Already closed
+		return
+	default:
+		close(q.exitChannel)
+	}
+}
+
+func (q *BaseQueue[T]) IsClosed() bool {
+	select {
+	case <-q.exitChannel:
+		return true
+	default:
+		return false
+	}
+}
+
+func (q *BaseQueue[T]) ExitChannel() <-chan struct{} {
+	return q.exitChannel
 }
 
 func (q *BaseQueue[T]) Kind() Kind {
@@ -95,11 +121,30 @@ func (q *BaseQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 	return nil, common.ErrNotImplemented
 }
 
+// Subscribe adds a callback handler. Thread-safe using atomic operations.
 func (q *BaseQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
-	q.locker.Lock(ctx)
-	defer q.locker.Unlock(ctx)
+	q.callbacksMu.Lock()
+	defer q.callbacksMu.Unlock()
 
-	q.callbacks = append(q.callbacks, cb)
+	callbacks := q.GetCallbacks()
+	newCallbacks := make([]Handler[T], len(callbacks)+1)
+	copy(newCallbacks, callbacks)
+	newCallbacks[len(callbacks)] = cb
+	q.callbacksAtomic.Store(newCallbacks)
+}
+
+// GetCallbacks returns the current callbacks slice. Lock-free read.
+func (q *BaseQueue[T]) GetCallbacks() []Handler[T] {
+	v := q.callbacksAtomic.Load()
+	if v == nil {
+		return nil
+	}
+	return v.([]Handler[T])
+}
+
+// HasCallbacks returns true if there are registered callbacks. Lock-free.
+func (q *BaseQueue[T]) HasCallbacks() bool {
+	return len(q.GetCallbacks()) > 0
 }
 
 func (q *BaseQueue[T]) TriggerCallbacks(ctx context.Context, msg Message[T]) {
@@ -108,9 +153,7 @@ func (q *BaseQueue[T]) TriggerCallbacks(ctx context.Context, msg Message[T]) {
 	go func() {
 		defer func() { <-q.msgBuffer }()
 
-		q.locker.Lock(ctx)
-		callbacks := q.callbacks
-		q.locker.Unlock(ctx)
+		callbacks := q.GetCallbacks()
 
 		if !q.config.CallbackParallelExecution {
 			// Sequential mode (default)
@@ -181,6 +224,14 @@ func (q *BaseQueue[T]) ValidateQueueClosed() error {
 
 func (q *BaseQueue[T]) GetQueueKey() string {
 	return fmt.Sprintf("%v::%v", Namespace, q.name)
+}
+
+func (q *BaseQueue[T]) GetRetryQueueName() string {
+	return fmt.Sprintf("%v::retry", q.name)
+}
+
+func (q *BaseQueue[T]) GetRetryQueueKey() string {
+	return fmt.Sprintf("%v::%v", Namespace, q.GetRetryQueueName())
 }
 
 func (q *BaseQueue[T]) GetDeadletterQueueName() string {
