@@ -104,14 +104,14 @@ func (q *SimpleQueue[T]) Name() string {
 
 func (q *SimpleQueue[T]) Close() {
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Str("queue_kind", q.kindString()).
 			Msg("Closing queue")
 	}
 	q.queue.Close()
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Msg("Queue closed successfully")
 	}
@@ -194,7 +194,7 @@ func (q *SimpleQueue[T]) BEnqueue(ctx context.Context, data T) error {
 	q.updateDepthMetrics()
 
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Str("queue_kind", q.kindString()).
 			Msg("Message blocking enqueued successfully")
@@ -237,7 +237,7 @@ func (q *SimpleQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	metrics.MetricQueueMessageAge.WithLabelValues(q.Name()).Observe(messageAge.Seconds())
 
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Str("queue_kind", q.kindString()).
 			Int("retry_count", data.RetryCount()).
@@ -283,7 +283,7 @@ func (q *SimpleQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 	metrics.MetricQueueMessageAge.WithLabelValues(q.Name()).Observe(messageAge.Seconds())
 
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Str("queue_kind", q.kindString()).
 			Int("retry_count", data.RetryCount()).
@@ -297,7 +297,7 @@ func (q *SimpleQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 
 func (q *SimpleQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Str("queue_kind", q.kindString()).
 			Msg("Subscribing to queue")
@@ -370,7 +370,7 @@ func (q *SimpleQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
 	q.updateConsumersMetric()
 
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Msg("Subscription registered successfully")
 	}
@@ -394,7 +394,7 @@ func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[
 
 			if queue, ok := q.queue.(RecoverableQueue[T]); ok {
 				if logger := q.logIfEnabled(); logger != nil {
-					logger.Info().
+					logger.Debug().
 						Str("queue_name", q.Name()).
 						Int("max_retries", DefaultMaxRetries).
 						Msg("Attempting to recover message after panic")
@@ -419,7 +419,7 @@ func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[
 					}
 
 					if logger := q.logIfEnabled(); logger != nil {
-						logger.Info().
+						logger.Debug().
 							Str("queue_name", q.Name()).
 							Int("retry_attempt", i+1).
 							Msg("Message recovered successfully after panic")
@@ -460,7 +460,7 @@ func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[
 
 		if q.IsRecoverable() {
 			if logger := q.logIfEnabled(); logger != nil {
-				logger.Info().
+				logger.Debug().
 					Str("queue_name", q.Name()).
 					Int("max_retries", DefaultMaxRetries).
 					Msg("Attempting to recover message after handler error")
@@ -485,7 +485,7 @@ func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[
 				}
 
 				if logger := q.logIfEnabled(); logger != nil {
-					logger.Info().
+					logger.Debug().
 						Str("queue_name", q.Name()).
 						Int("retry_attempt", i+1).
 						Msg("Message recovered successfully after handler error")
@@ -545,7 +545,7 @@ func (q *SimpleQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 		}
 		metrics.MetricQueueRecoverSuccessulTotal.WithLabelValues(q.Name()).Inc()
 		if logger := q.logIfEnabled(); logger != nil {
-			logger.Info().
+			logger.Debug().
 				Str("queue_name", q.Name()).
 				Int("retry_count", msg.RetryCount()).
 				Int("total_retry_count", msg.TotalRetryCount()).
@@ -569,7 +569,7 @@ func (q *SimpleQueue[T]) IsRecoverable() bool {
 
 func (q *SimpleQueue[T]) Purge(ctx context.Context) error {
 	if logger := q.logIfEnabled(); logger != nil {
-		logger.Info().
+		logger.Debug().
 			Str("queue_name", q.Name()).
 			Msg("Purging queue")
 	}
@@ -591,7 +591,7 @@ func (q *SimpleQueue[T]) Purge(ctx context.Context) error {
 		}
 		metrics.MetricQueuePurgeSuccessulTotal.WithLabelValues(q.Name()).Inc()
 		if logger := q.logIfEnabled(); logger != nil {
-			logger.Info().
+			logger.Debug().
 				Str("queue_name", q.Name()).
 				Msg("Queue purged successfully")
 		}
