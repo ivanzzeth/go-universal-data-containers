@@ -9,6 +9,7 @@ import (
 
 var (
 	_ Message[any] = (*JsonMessage[any])(nil)
+	_ Message[any] = (*MsgpackMessage[any])(nil)
 
 	// NOTE: if version updated, must update this value.
 	// Make sure the version is greater than the current version
@@ -178,4 +179,153 @@ func (m *JsonMessage[T]) RefreshUpdatedAt() {
 	metadata := m.Metadata()
 	metadata["updated_at"] = time.Now()
 	m.SetMetadata(metadata)
+}
+
+type MsgpackMessage[T any] struct {
+	message.MsgpackMessage[T]
+}
+
+func NewMsgpackMessage[T any](data T) *MsgpackMessage[T] {
+	msg := &MsgpackMessage[T]{}
+
+	msg.SetVersion(currMsgVersion)
+
+	msg.SetData(data)
+
+	msg.SetMetadata(map[string]interface{}{
+		"retry_count":       int(0),
+		"total_retry_count": int(0),
+		"created_at":        time.Now(),
+		"updated_at":        time.Now(),
+	})
+	return msg
+}
+
+func (m *MsgpackMessage[T]) RetryCount() int {
+	if m.Version().Cmp(currMsgVersion) != 0 {
+		return 0
+	}
+
+	if retry, ok := m.Metadata()["retry_count"]; ok {
+		return toInt(retry)
+	}
+
+	return 0
+}
+
+func (m *MsgpackMessage[T]) AddRetryCount() {
+	if m.Version().Cmp(currMsgVersion) != 0 {
+		return
+	}
+
+	metadata := m.Metadata()
+	metadata["retry_count"] = m.RetryCount() + 1
+	m.SetMetadata(metadata)
+	m.RefreshUpdatedAt()
+}
+
+func (m *MsgpackMessage[T]) TotalRetryCount() int {
+	if m.Version().Cmp(currMsgVersion) != 0 {
+		return 0
+	}
+
+	if total, ok := m.Metadata()["total_retry_count"]; ok {
+		return toInt(total)
+	}
+
+	return 0
+}
+
+func (m *MsgpackMessage[T]) RefreshRetryCount() {
+	if m.Version().Cmp(currMsgVersion) != 0 {
+		return
+	}
+
+	metadata := m.Metadata()
+	metadata["retry_count"] = int(0)
+	m.SetMetadata(metadata)
+	m.RefreshUpdatedAt()
+}
+
+func (m *MsgpackMessage[T]) CreatedAt() time.Time {
+	if m.Version().Cmp(currMsgVersion) != 0 {
+		return time.Time{}
+	}
+
+	if created, ok := m.Metadata()["created_at"]; ok {
+		return toTime(created)
+	}
+
+	return time.Time{}
+}
+
+func (m *MsgpackMessage[T]) UpdatedAt() time.Time {
+	if m.Version().Cmp(currMsgVersion) != 0 {
+		return time.Time{}
+	}
+
+	if updated, ok := m.Metadata()["updated_at"]; ok {
+		return toTime(updated)
+	}
+
+	return time.Time{}
+}
+
+func (m *MsgpackMessage[T]) RefreshUpdatedAt() {
+	if m.Version().Cmp(currMsgVersion) != 0 {
+		return
+	}
+
+	metadata := m.Metadata()
+	metadata["updated_at"] = time.Now()
+	m.SetMetadata(metadata)
+}
+
+func toInt(v interface{}) int {
+	switch val := v.(type) {
+	case int:
+		return val
+	case int8:
+		return int(val)
+	case int16:
+		return int(val)
+	case int32:
+		return int(val)
+	case int64:
+		return int(val)
+	case uint:
+		return int(val)
+	case uint8:
+		return int(val)
+	case uint16:
+		return int(val)
+	case uint32:
+		return int(val)
+	case uint64:
+		return int(val)
+	case float32:
+		return int(val)
+	case float64:
+		return int(val)
+	default:
+		panic("value is not a numeric type")
+	}
+}
+
+func toTime(v interface{}) time.Time {
+	switch val := v.(type) {
+	case time.Time:
+		return val
+	case string:
+		t, err := time.Parse(time.RFC3339Nano, val)
+		if err != nil {
+			t, err = time.Parse(time.RFC3339, val)
+			if err != nil {
+				return time.Time{}
+			}
+		}
+		return t
+	default:
+		return time.Time{}
+	}
 }
