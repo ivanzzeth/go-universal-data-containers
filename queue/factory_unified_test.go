@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 )
 
 func TestUnifiedFactory_Memory(t *testing.T) {
-	// No registration needed for built-in types
 	config := UnifiedQueueConfig{
 		Type:              QueueTypeMemory,
 		MaxSize:           100,
@@ -21,12 +21,12 @@ func TestUnifiedFactory_Memory(t *testing.T) {
 		ConsumerCount:     2,
 	}
 
-	factory, err := NewUnifiedFactory(config, NewJsonMessage([]byte{}))
+	factory, err := NewUnifiedFactory(config)
 	require.NoError(t, err)
 	require.NotNil(t, factory)
 
-	// Create queue
-	q, err := factory.GetOrCreateSafe("test-memory-queue")
+	// Create queue using generic function
+	q, err := GetOrCreateSafe[[]byte](factory, "test-memory-queue", NewJsonMessage([]byte{}))
 	require.NoError(t, err)
 	require.NotNil(t, q)
 
@@ -40,7 +40,7 @@ func TestUnifiedFactory_Memory(t *testing.T) {
 	assert.Equal(t, []byte("test-data"), msg.Data())
 
 	// Verify queue is cached
-	q2, err := factory.GetOrCreateSafe("test-memory-queue")
+	q2, err := GetOrCreateSafe[[]byte](factory, "test-memory-queue", NewJsonMessage([]byte{}))
 	require.NoError(t, err)
 	assert.Equal(t, q, q2)
 
@@ -51,7 +51,6 @@ func TestUnifiedFactory_Redis(t *testing.T) {
 	// Start miniredis
 	s := miniredis.RunT(t)
 
-	// No registration needed for built-in types
 	backendConfig, _ := json.Marshal(RedisQueueConfig{
 		Addr: s.Addr(),
 	})
@@ -63,12 +62,12 @@ func TestUnifiedFactory_Redis(t *testing.T) {
 		BackendConfig:     backendConfig,
 	}
 
-	factory, err := NewUnifiedFactory(config, NewJsonMessage([]byte{}))
+	factory, err := NewUnifiedFactory(config)
 	require.NoError(t, err)
 	require.NotNil(t, factory)
 
-	// Create queue
-	q, err := factory.GetOrCreateSafe("test-redis-queue")
+	// Create queue using generic function
+	q, err := GetOrCreateSafe[[]byte](factory, "test-redis-queue", NewJsonMessage([]byte{}))
 	require.NoError(t, err)
 	require.NotNil(t, q)
 
@@ -93,17 +92,16 @@ func TestUnifiedFactory_RedisWithExistingClient(t *testing.T) {
 		Addr: s.Addr(),
 	})
 
-	// Use RedisClient field instead of registration
 	config := UnifiedQueueConfig{
 		Type:        QueueTypeRedis,
 		MaxSize:     100,
 		RedisClient: rdb,
 	}
 
-	factory, err := NewUnifiedFactory(config, NewJsonMessage([]byte{}))
+	factory, err := NewUnifiedFactory(config)
 	require.NoError(t, err)
 
-	q, err := factory.GetOrCreateSafe("test-redis-client-queue")
+	q, err := GetOrCreateSafe[[]byte](factory, "test-redis-client-queue", NewJsonMessage([]byte{}))
 	require.NoError(t, err)
 	require.NotNil(t, q)
 
@@ -120,8 +118,6 @@ func TestUnifiedFactory_RedisWithExistingClient(t *testing.T) {
 }
 
 func TestUnifiedFactory_FromJSON(t *testing.T) {
-	// No registration needed for built-in types
-
 	// Test parsing from JSON
 	configJSON := `{
 		"type": "memory",
@@ -141,10 +137,10 @@ func TestUnifiedFactory_FromJSON(t *testing.T) {
 	assert.Equal(t, 2, config.ConsumerCount)
 	assert.True(t, config.CallbackParallel)
 
-	factory, err := NewUnifiedFactory(config, NewJsonMessage([]byte{}))
+	factory, err := NewUnifiedFactory(config)
 	require.NoError(t, err)
 
-	q, err := factory.GetOrCreateSafe("json-config-queue")
+	q, err := GetOrCreateSafe[[]byte](factory, "json-config-queue", NewJsonMessage([]byte{}))
 	require.NoError(t, err)
 	require.NotNil(t, q)
 
@@ -158,8 +154,6 @@ func TestUnifiedFactory_FromJSON(t *testing.T) {
 func TestUnifiedFactory_RedisFromJSON(t *testing.T) {
 	// Start miniredis
 	s := miniredis.RunT(t)
-
-	// No registration needed for built-in types
 
 	// Test parsing from JSON with nested backend config
 	configJSON := `{
@@ -177,10 +171,10 @@ func TestUnifiedFactory_RedisFromJSON(t *testing.T) {
 	err := json.Unmarshal([]byte(configJSON), &config)
 	require.NoError(t, err)
 
-	factory, err := NewUnifiedFactory(config, NewJsonMessage([]byte{}))
+	factory, err := NewUnifiedFactory(config)
 	require.NoError(t, err)
 
-	q, err := factory.GetOrCreateSafe("redis-json-config-queue")
+	q, err := GetOrCreateSafe[[]byte](factory, "redis-json-config-queue", NewJsonMessage([]byte{}))
 	require.NoError(t, err)
 	require.NotNil(t, q)
 
@@ -188,8 +182,6 @@ func TestUnifiedFactory_RedisFromJSON(t *testing.T) {
 }
 
 func TestUnifiedFactory_ValidationErrors(t *testing.T) {
-	// No registration needed - built-in types have built-in validation
-
 	tests := []struct {
 		name        string
 		config      UnifiedQueueConfig
@@ -226,7 +218,7 @@ func TestUnifiedFactory_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewUnifiedFactory(tt.config, NewJsonMessage([]byte{}))
+			_, err := NewUnifiedFactory(tt.config)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expectedErr)
 		})
@@ -234,17 +226,16 @@ func TestUnifiedFactory_ValidationErrors(t *testing.T) {
 }
 
 func TestUnifiedFactory_Subscribe(t *testing.T) {
-	// No registration needed for built-in types
 	config := UnifiedQueueConfig{
 		Type:              QueueTypeMemory,
 		MaxSize:           100,
 		MaxHandleFailures: 3,
 	}
 
-	factory, err := NewUnifiedFactory(config, NewJsonMessage([]byte{}))
+	factory, err := NewUnifiedFactory(config)
 	require.NoError(t, err)
 
-	q, err := factory.GetOrCreateSafe("subscribe-test-queue")
+	q, err := GetOrCreateSafe[[]byte](factory, "subscribe-test-queue", NewJsonMessage([]byte{}))
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -335,34 +326,274 @@ func TestUnifiedQueueConfig_JSONMarshal(t *testing.T) {
 	assert.Equal(t, 1, redisConfig.DB)
 }
 
-// TestUnifiedFactory_CustomType tests using custom message types
+// TestUnifiedFactory_MultipleTypes tests creating queues of different types from the same factory
 type customMessage struct {
 	ID   string `json:"id"`
 	Data string `json:"data"`
 }
 
-func TestUnifiedFactory_CustomType(t *testing.T) {
-	// No registration needed - generic type is inferred from defaultMsg
+func TestUnifiedFactory_MultipleTypes(t *testing.T) {
 	config := UnifiedQueueConfig{
 		Type:              QueueTypeMemory,
 		MaxSize:           100,
 		MaxHandleFailures: 3,
 	}
 
-	factory, err := NewUnifiedFactory(config, NewJsonMessage(customMessage{}))
-	require.NoError(t, err)
-
-	q, err := factory.GetOrCreateSafe("custom-type-queue")
+	// Create a single factory
+	factory, err := NewUnifiedFactory(config)
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	err = q.Enqueue(ctx, customMessage{ID: "123", Data: "test"})
+
+	// Create a []byte queue
+	bytesQueue, err := GetOrCreateSafe[[]byte](factory, "bytes-queue", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	err = bytesQueue.Enqueue(ctx, []byte("hello"))
+	require.NoError(t, err)
+
+	bytesMsg, err := bytesQueue.Dequeue(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), bytesMsg.Data())
+
+	// Create a custom type queue from the same factory
+	customQueue, err := GetOrCreateSafe[customMessage](factory, "custom-queue", NewJsonMessage(customMessage{}))
+	require.NoError(t, err)
+
+	err = customQueue.Enqueue(ctx, customMessage{ID: "123", Data: "test"})
+	require.NoError(t, err)
+
+	customMsg, err := customQueue.Dequeue(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "123", customMsg.Data().ID)
+	assert.Equal(t, "test", customMsg.Data().Data)
+
+	bytesQueue.Close()
+	customQueue.Close()
+}
+
+// TestUnifiedFactory_TypeMismatch tests that accessing a queue with wrong type returns error
+func TestUnifiedFactory_TypeMismatch(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:    QueueTypeMemory,
+		MaxSize: 100,
+	}
+
+	factory, err := NewUnifiedFactory(config)
+	require.NoError(t, err)
+
+	// Create a []byte queue
+	_, err = GetOrCreateSafe[[]byte](factory, "typed-queue", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	// Try to get the same queue with a different type
+	_, err = GetOrCreateSafe[customMessage](factory, "typed-queue", NewJsonMessage(customMessage{}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists with a different message type")
+}
+
+// TestTypedFactory tests the TypedFactory convenience wrapper
+func TestTypedFactory(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:              QueueTypeMemory,
+		MaxSize:           100,
+		MaxHandleFailures: 3,
+	}
+
+	// Create a typed factory for []byte
+	factory, err := NewTypedFactory(config, NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	// Create queue - no need to specify type
+	q, err := factory.GetOrCreateSafe("typed-queue")
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = q.Enqueue(ctx, []byte("test-data"))
 	require.NoError(t, err)
 
 	msg, err := q.Dequeue(ctx)
 	require.NoError(t, err)
-	assert.Equal(t, "123", msg.Data().ID)
-	assert.Equal(t, "test", msg.Data().Data)
+	assert.Equal(t, []byte("test-data"), msg.Data())
+
+	// Verify config access
+	assert.Equal(t, QueueTypeMemory, factory.Config().Type)
+
+	// Verify underlying factory access
+	assert.NotNil(t, factory.Factory())
 
 	q.Close()
+}
+
+// TestTypedFactory_CustomType tests TypedFactory with custom message type
+func TestTypedFactory_CustomType(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:    QueueTypeMemory,
+		MaxSize: 100,
+	}
+
+	factory, err := NewTypedFactory(config, NewJsonMessage(customMessage{}))
+	require.NoError(t, err)
+
+	q, err := factory.GetOrCreateSafe("custom-typed-queue")
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	err = q.Enqueue(ctx, customMessage{ID: "456", Data: "custom"})
+	require.NoError(t, err)
+
+	msg, err := q.Dequeue(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "456", msg.Data().ID)
+	assert.Equal(t, "custom", msg.Data().Data)
+
+	q.Close()
+}
+
+// TestUnifiedFactory_ConcurrentAccess tests that the factory is thread-safe
+func TestUnifiedFactory_ConcurrentAccess(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:              QueueTypeMemory,
+		MaxSize:           100,
+		MaxHandleFailures: 3,
+	}
+
+	factory, err := NewUnifiedFactory(config)
+	require.NoError(t, err)
+
+	const numGoroutines = 10
+	const numQueuesPerGoroutine = 5
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, numGoroutines*numQueuesPerGoroutine)
+	queueChan := make(chan SafeQueue[[]byte], numGoroutines*numQueuesPerGoroutine)
+
+	// Concurrently create queues from the same factory
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(goroutineID int) {
+			defer wg.Done()
+			for j := 0; j < numQueuesPerGoroutine; j++ {
+				// Use same queue name to test caching under concurrent access
+				queueName := "concurrent-queue-" + string(rune('a'+j%3))
+				q, err := GetOrCreateSafe[[]byte](factory, queueName, NewJsonMessage([]byte{}))
+				if err != nil {
+					errChan <- err
+					continue
+				}
+				queueChan <- q
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errChan)
+	close(queueChan)
+
+	// Check for errors
+	for err := range errChan {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	// Verify all queues were created successfully
+	queues := make([]SafeQueue[[]byte], 0)
+	for q := range queueChan {
+		queues = append(queues, q)
+	}
+	assert.Equal(t, numGoroutines*numQueuesPerGoroutine, len(queues))
+
+	// Verify that same-named queues return the same instance
+	queuesByName := make(map[string]SafeQueue[[]byte])
+	for _, q := range queues {
+		name := q.Name()
+		if existing, ok := queuesByName[name]; ok {
+			// Same name should return same queue instance
+			assert.Equal(t, existing, q, "same queue name should return same instance")
+		} else {
+			queuesByName[name] = q
+		}
+	}
+
+	// Should only have 3 unique queues (a, b, c)
+	assert.Equal(t, 3, len(queuesByName))
+
+	// Clean up
+	for _, q := range queuesByName {
+		q.Close()
+	}
+}
+
+// TestUnifiedFactory_ConcurrentDifferentTypes tests concurrent creation of queues with different types
+func TestUnifiedFactory_ConcurrentDifferentTypes(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:    QueueTypeMemory,
+		MaxSize: 100,
+	}
+
+	factory, err := NewUnifiedFactory(config)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	errChan := make(chan error, 20)
+
+	// Concurrently try to create queues with different types for same name
+	// This should fail for type mismatch
+	for i := 0; i < 10; i++ {
+		wg.Add(2)
+
+		// Create []byte queue
+		go func() {
+			defer wg.Done()
+			_, err := GetOrCreateSafe[[]byte](factory, "typed-concurrent-queue", NewJsonMessage([]byte{}))
+			if err != nil {
+				errChan <- err
+			}
+		}()
+
+		// Try to create customMessage queue with same name
+		go func() {
+			defer wg.Done()
+			_, err := GetOrCreateSafe[customMessage](factory, "typed-concurrent-queue", NewJsonMessage(customMessage{}))
+			if err != nil {
+				errChan <- err
+			}
+		}()
+	}
+
+	wg.Wait()
+	close(errChan)
+
+	// Collect errors - we expect some type mismatch errors
+	var typeMismatchCount int
+	for err := range errChan {
+		if err != nil && err.Error() == "queue \"typed-concurrent-queue\" already exists with a different message type" {
+			typeMismatchCount++
+		}
+	}
+
+	// At least some should have type mismatch (all but the first successful one of one type)
+	assert.GreaterOrEqual(t, typeMismatchCount, 1, "expected at least one type mismatch error")
+}
+
+// TestUnifiedFactory_ConfigImmutability tests that modifying returned config doesn't affect factory
+func TestUnifiedFactory_ConfigImmutability(t *testing.T) {
+	backendConfig := json.RawMessage(`{"test": "value"}`)
+	config := UnifiedQueueConfig{
+		Type:          QueueTypeMemory,
+		MaxSize:       100,
+		BackendConfig: backendConfig,
+	}
+
+	factory, err := NewUnifiedFactory(config)
+	require.NoError(t, err)
+
+	// Get config and modify it
+	returnedConfig := factory.Config()
+	returnedConfig.MaxSize = 9999
+	returnedConfig.BackendConfig[0] = 'X' // Modify the backing slice
+
+	// Verify original config is unchanged
+	originalConfig := factory.Config()
+	assert.Equal(t, 100, originalConfig.MaxSize, "MaxSize should not be modified")
+	assert.Equal(t, byte('{'), originalConfig.BackendConfig[0], "BackendConfig should not be modified")
 }

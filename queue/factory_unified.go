@@ -77,7 +77,7 @@ type RedisQueueConfig struct {
 // Global registry for custom queue creators and validators.
 // Built-in types (memory, redis) are handled directly without registration.
 var (
-	creatorRegistry   = make(map[QueueType]interface{})
+	creatorRegistry   = make(map[QueueType]any)
 	validatorRegistry = make(map[QueueType]QueueConfigValidator)
 	registryMu        sync.RWMutex
 )
@@ -85,7 +85,7 @@ var (
 // RegisterQueueCreator registers a creator function for a custom queue type.
 // Built-in types (memory, redis) don't need registration.
 //
-// Note: Due to Go's generics limitations, creators are stored as interface{}
+// Note: Due to Go's generics limitations, creators are stored as any
 // and type-asserted at runtime.
 func RegisterQueueCreator[T any](queueType QueueType, creator QueueCreator[T]) {
 	registryMu.Lock()
@@ -136,29 +136,59 @@ func IsQueueTypeSupported(queueType QueueType) bool {
 }
 
 // UnifiedFactory creates queues based on configuration.
+// It is type-agnostic and can create queues of any message type.
 // Built-in types (memory, redis) are created directly without registration.
 // Custom types use the registry.
-type UnifiedFactory[T any] struct {
-	config     UnifiedQueueConfig
-	defaultMsg Message[T]
+type UnifiedFactory struct {
+	config UnifiedQueueConfig
 
 	// cache stores created queues by name for reuse
-	cache   map[string]SafeQueue[T]
+	// Key format: "name:type" where type is the reflect type name
+	cache   map[string]any
 	cacheMu sync.Mutex
+
+	// redisClient is cached for reuse across multiple queue creations
+	redisClient redis.Cmdable
 }
 
 // NewUnifiedFactory creates a new unified queue factory.
 // No registration required for built-in types (memory, redis).
-func NewUnifiedFactory[T any](config UnifiedQueueConfig, defaultMsg Message[T]) (*UnifiedFactory[T], error) {
+// The factory can create queues of any message type using GetOrCreateSafe.
+func NewUnifiedFactory(config UnifiedQueueConfig) (*UnifiedFactory, error) {
 	// Validate configuration
 	if err := validateUnifiedConfig(config); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	f := &UnifiedFactory[T]{
-		config:     config,
-		defaultMsg: defaultMsg,
-		cache:      make(map[string]SafeQueue[T]),
+	f := &UnifiedFactory{
+		config: config,
+		cache:  make(map[string]any),
+	}
+
+	// Pre-create Redis client if needed
+	if config.Type == QueueTypeRedis {
+		if config.RedisClient != nil {
+			f.redisClient = config.RedisClient
+		} else {
+			var cfg RedisQueueConfig
+			if err := json.Unmarshal(config.BackendConfig, &cfg); err != nil {
+				return nil, fmt.Errorf("failed to parse redis config: %w", err)
+			}
+
+			client := redis.NewClient(&redis.Options{
+				Addr:     cfg.Addr,
+				Password: cfg.Password,
+				DB:       cfg.DB,
+			})
+
+			// Test connection
+			ctx := context.Background()
+			if err := client.Ping(ctx).Err(); err != nil {
+				return nil, fmt.Errorf("failed to connect to redis at %s: %w", cfg.Addr, err)
+			}
+
+			f.redisClient = client
+		}
 	}
 
 	return f, nil
@@ -228,23 +258,32 @@ func validateBuiltinConfig(config UnifiedQueueConfig) error {
 	}
 }
 
-// GetOrCreate creates or returns a cached queue with the given name
-func (f *UnifiedFactory[T]) GetOrCreate(name string, options ...Option) (Queue[T], error) {
-	return f.GetOrCreateSafe(name, options...)
-}
-
-// GetOrCreateSafe creates or returns a cached SafeQueue with the given name
-func (f *UnifiedFactory[T]) GetOrCreateSafe(name string, options ...Option) (SafeQueue[T], error) {
+// GetOrCreateSafe creates or returns a cached SafeQueue with the given name and message type.
+// This is a generic function that allows creating queues of different types from the same factory.
+//
+// Example:
+//
+//	factory, _ := queue.NewUnifiedFactory(config)
+//	bytesQueue, _ := queue.GetOrCreateSafe[[]byte](factory, "bytes-queue", queue.NewJsonMessage([]byte{}))
+//	myTypeQueue, _ := queue.GetOrCreateSafe[MyType](factory, "mytype-queue", queue.NewJsonMessage(MyType{}))
+func GetOrCreateSafe[T any](f *UnifiedFactory, name string, defaultMsg Message[T], options ...Option) (SafeQueue[T], error) {
 	f.cacheMu.Lock()
 	defer f.cacheMu.Unlock()
 
-	// Return cached queue if exists
-	if q, ok := f.cache[name]; ok {
-		return q, nil
+	// Generate cache key using name (type is implicit in the generic parameter)
+	cacheKey := name
+
+	// Return cached queue if exists and type matches
+	if cached, ok := f.cache[cacheKey]; ok {
+		if q, ok := cached.(SafeQueue[T]); ok {
+			return q, nil
+		}
+		// Type mismatch - queue exists with different type
+		return nil, fmt.Errorf("queue %q already exists with a different message type", name)
 	}
 
 	// Build options from config
-	configOptions := f.buildOptions()
+	configOptions := buildOptions(f.config)
 	allOptions := append(configOptions, options...)
 
 	// Create queue based on type
@@ -252,9 +291,9 @@ func (f *UnifiedFactory[T]) GetOrCreateSafe(name string, options ...Option) (Saf
 	var err error
 
 	if builtinQueueTypes[f.config.Type] {
-		q, err = f.createBuiltinQueue(name, allOptions...)
+		q, err = createBuiltinQueue(f, name, defaultMsg, allOptions...)
 	} else {
-		q, err = f.createCustomQueue(name, allOptions...)
+		q, err = createCustomQueue[T](f, name, defaultMsg, allOptions...)
 	}
 
 	if err != nil {
@@ -268,58 +307,32 @@ func (f *UnifiedFactory[T]) GetOrCreateSafe(name string, options ...Option) (Saf
 	}
 
 	// Cache and return
-	f.cache[name] = safeQ
+	f.cache[cacheKey] = safeQ
 	return safeQ, nil
 }
 
+// GetOrCreate creates or returns a cached Queue with the given name and message type.
+// This is a convenience wrapper around GetOrCreateSafe.
+func GetOrCreate[T any](f *UnifiedFactory, name string, defaultMsg Message[T], options ...Option) (Queue[T], error) {
+	return GetOrCreateSafe(f, name, defaultMsg, options...)
+}
+
 // createBuiltinQueue creates a queue for built-in types directly
-func (f *UnifiedFactory[T]) createBuiltinQueue(name string, options ...Option) (Queue[T], error) {
+func createBuiltinQueue[T any](f *UnifiedFactory, name string, defaultMsg Message[T], options ...Option) (Queue[T], error) {
 	switch f.config.Type {
 	case QueueTypeMemory:
-		return NewMemoryQueue(name, f.defaultMsg, options...)
+		return NewMemoryQueue(name, defaultMsg, options...)
 
 	case QueueTypeRedis:
-		return f.createRedisQueue(name, options...)
+		return NewRedisQueue(f.redisClient, name, defaultMsg, options...)
 
 	default:
 		return nil, fmt.Errorf("unknown built-in queue type %q", f.config.Type)
 	}
 }
 
-// createRedisQueue creates a Redis queue
-func (f *UnifiedFactory[T]) createRedisQueue(name string, options ...Option) (Queue[T], error) {
-	var rdb redis.Cmdable
-
-	if f.config.RedisClient != nil {
-		// Use provided client
-		rdb = f.config.RedisClient
-	} else {
-		// Create new client from config
-		var cfg RedisQueueConfig
-		if err := json.Unmarshal(f.config.BackendConfig, &cfg); err != nil {
-			return nil, fmt.Errorf("failed to parse redis config: %w", err)
-		}
-
-		client := redis.NewClient(&redis.Options{
-			Addr:     cfg.Addr,
-			Password: cfg.Password,
-			DB:       cfg.DB,
-		})
-
-		// Test connection
-		ctx := context.Background()
-		if err := client.Ping(ctx).Err(); err != nil {
-			return nil, fmt.Errorf("failed to connect to redis at %s: %w", cfg.Addr, err)
-		}
-
-		rdb = client
-	}
-
-	return NewRedisQueue(rdb, name, f.defaultMsg, options...)
-}
-
 // createCustomQueue creates a queue using registered creator
-func (f *UnifiedFactory[T]) createCustomQueue(name string, options ...Option) (Queue[T], error) {
+func createCustomQueue[T any](f *UnifiedFactory, name string, defaultMsg Message[T], options ...Option) (Queue[T], error) {
 	registryMu.RLock()
 	creatorIface, ok := creatorRegistry[f.config.Type]
 	registryMu.RUnlock()
@@ -334,7 +347,7 @@ func (f *UnifiedFactory[T]) createCustomQueue(name string, options ...Option) (Q
 	}
 
 	ctx := context.Background()
-	q, err := creator(ctx, name, f.defaultMsg, f.config.BackendConfig, options...)
+	q, err := creator(ctx, name, defaultMsg, f.config.BackendConfig, options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create %q queue: %w", f.config.Type, err)
 	}
@@ -343,34 +356,44 @@ func (f *UnifiedFactory[T]) createCustomQueue(name string, options ...Option) (Q
 }
 
 // buildOptions converts config fields to Option functions
-func (f *UnifiedFactory[T]) buildOptions() []Option {
+func buildOptions(config UnifiedQueueConfig) []Option {
 	var opts []Option
 
-	if f.config.MaxSize != 0 {
-		opts = append(opts, WithMaxSize(f.config.MaxSize))
+	if config.MaxSize != 0 {
+		opts = append(opts, WithMaxSize(config.MaxSize))
 	}
-	if f.config.MaxHandleFailures != 0 {
-		opts = append(opts, WithMaxHandleFailures(f.config.MaxHandleFailures))
+	if config.MaxHandleFailures != 0 {
+		opts = append(opts, WithMaxHandleFailures(config.MaxHandleFailures))
 	}
-	if f.config.ConsumerCount != 0 {
-		opts = append(opts, WithConsumerCount(f.config.ConsumerCount))
+	if config.ConsumerCount != 0 {
+		opts = append(opts, WithConsumerCount(config.ConsumerCount))
 	}
-	if f.config.CallbackParallel {
+	if config.CallbackParallel {
 		opts = append(opts, WithCallbackParallelExecution(true))
 	}
-	if f.config.UnlimitedCapacity != 0 {
-		opts = append(opts, WithUnlimitedCapacity(f.config.UnlimitedCapacity))
+	if config.UnlimitedCapacity != 0 {
+		opts = append(opts, WithUnlimitedCapacity(config.UnlimitedCapacity))
 	}
-	if f.config.RetryQueueCapacity != 0 {
-		opts = append(opts, WithRetryQueueCapacity(f.config.RetryQueueCapacity))
+	if config.RetryQueueCapacity != 0 {
+		opts = append(opts, WithRetryQueueCapacity(config.RetryQueueCapacity))
 	}
 
 	return opts
 }
 
-// Config returns the factory's configuration
-func (f *UnifiedFactory[T]) Config() UnifiedQueueConfig {
-	return f.config
+// Config returns a copy of the factory's configuration.
+// The returned config is safe to modify without affecting the factory.
+func (f *UnifiedFactory) Config() UnifiedQueueConfig {
+	// Return a copy to prevent external modification
+	configCopy := f.config
+
+	// Deep copy BackendConfig slice to prevent modification
+	if f.config.BackendConfig != nil {
+		configCopy.BackendConfig = make(json.RawMessage, len(f.config.BackendConfig))
+		copy(configCopy.BackendConfig, f.config.BackendConfig)
+	}
+
+	return configCopy
 }
 
 // Deprecated: ValidateUnifiedConfig is deprecated, use NewUnifiedFactory which validates internally.
@@ -383,4 +406,54 @@ func ValidateUnifiedConfig(config UnifiedQueueConfig) error {
 // Kept for backward compatibility.
 func IsQueueTypeRegistered(queueType QueueType) bool {
 	return IsQueueTypeSupported(queueType)
+}
+
+// =============================================================================
+// Typed Factory (for backward compatibility and convenience)
+// =============================================================================
+
+// TypedFactory is a typed wrapper around UnifiedFactory for convenience.
+// Use this when you only need queues of a single message type.
+type TypedFactory[T any] struct {
+	factory    *UnifiedFactory
+	defaultMsg Message[T]
+}
+
+// NewTypedFactory creates a typed factory wrapper.
+// This is a convenience for when you only need queues of one message type.
+//
+// Example:
+//
+//	factory, _ := queue.NewTypedFactory(config, queue.NewJsonMessage([]byte{}))
+//	q, _ := factory.GetOrCreateSafe("my-queue")
+func NewTypedFactory[T any](config UnifiedQueueConfig, defaultMsg Message[T]) (*TypedFactory[T], error) {
+	f, err := NewUnifiedFactory(config)
+	if err != nil {
+		return nil, err
+	}
+
+	return &TypedFactory[T]{
+		factory:    f,
+		defaultMsg: defaultMsg,
+	}, nil
+}
+
+// GetOrCreate creates or returns a cached queue with the given name
+func (f *TypedFactory[T]) GetOrCreate(name string, options ...Option) (Queue[T], error) {
+	return GetOrCreateSafe(f.factory, name, f.defaultMsg, options...)
+}
+
+// GetOrCreateSafe creates or returns a cached SafeQueue with the given name
+func (f *TypedFactory[T]) GetOrCreateSafe(name string, options ...Option) (SafeQueue[T], error) {
+	return GetOrCreateSafe(f.factory, name, f.defaultMsg, options...)
+}
+
+// Config returns the factory's configuration
+func (f *TypedFactory[T]) Config() UnifiedQueueConfig {
+	return f.factory.Config()
+}
+
+// Factory returns the underlying UnifiedFactory
+func (f *TypedFactory[T]) Factory() *UnifiedFactory {
+	return f.factory
 }

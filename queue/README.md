@@ -25,7 +25,7 @@ go get github.com/ivanzzeth/go-universal-data-containers
 
 ### Using Unified Factory (Recommended)
 
-The unified factory allows you to switch between backends using configuration. **No registration required** for built-in types (Memory, Redis):
+The unified factory allows you to switch between backends using configuration. **No registration required** for built-in types (Memory, Redis). The factory is **type-agnostic** - you can create queues of different message types from a single factory:
 
 ```go
 package main
@@ -46,14 +46,14 @@ func main() {
         ConsumerCount:     2,
     }
 
-    // Create factory - works with any message type via generics
-    factory, err := queue.NewUnifiedFactory(config, queue.NewJsonMessage([]byte{}))
+    // Create factory - type-agnostic, can create queues of any type
+    factory, err := queue.NewUnifiedFactory(config)
     if err != nil {
         panic(err)
     }
 
-    // Create queue
-    q, err := factory.GetOrCreateSafe("my-queue")
+    // Create queue with specific type using generic function
+    q, err := queue.GetOrCreateSafe[[]byte](factory, "my-queue", queue.NewJsonMessage([]byte{}))
     if err != nil {
         panic(err)
     }
@@ -78,7 +78,7 @@ func main() {
 
 ### Using Custom Message Types
 
-The factory automatically supports any message type through Go generics:
+The factory supports any message type through Go generics. You can even create queues of different types from the same factory:
 
 ```go
 type MyMessage struct {
@@ -91,14 +91,30 @@ config := queue.UnifiedQueueConfig{
     MaxSize: 1000,
 }
 
-// Just pass your type to NewJsonMessage - no registration needed!
-factory, _ := queue.NewUnifiedFactory(config, queue.NewJsonMessage(MyMessage{}))
-q, _ := factory.GetOrCreateSafe("my-queue")
+// Create a single factory
+factory, _ := queue.NewUnifiedFactory(config)
+
+// Create queues of different types from the same factory
+bytesQueue, _ := queue.GetOrCreateSafe[[]byte](factory, "bytes-queue", queue.NewJsonMessage([]byte{}))
+myTypeQueue, _ := queue.GetOrCreateSafe[MyMessage](factory, "mytype-queue", queue.NewJsonMessage(MyMessage{}))
 
 // Enqueue and dequeue with your custom type
-q.Enqueue(ctx, MyMessage{ID: "123", Data: "test"})
-msg, _ := q.Dequeue(ctx)
+myTypeQueue.Enqueue(ctx, MyMessage{ID: "123", Data: "test"})
+msg, _ := myTypeQueue.Dequeue(ctx)
 fmt.Println(msg.Data().ID) // "123"
+```
+
+### Using TypedFactory (Convenience Wrapper)
+
+If you only need queues of a single message type, use `TypedFactory` for a more concise API:
+
+```go
+// Create a typed factory for []byte
+factory, _ := queue.NewTypedFactory(config, queue.NewJsonMessage([]byte{}))
+
+// No need to specify type or defaultMsg when creating queues
+q, _ := factory.GetOrCreateSafe("my-queue")
+q.Enqueue(ctx, []byte("hello"))
 ```
 
 ### Using Redis Backend
@@ -118,8 +134,8 @@ config := queue.UnifiedQueueConfig{
     BackendConfig:     backendConfig,
 }
 
-factory, _ := queue.NewUnifiedFactory(config, queue.NewJsonMessage([]byte{}))
-q, _ := factory.GetOrCreateSafe("redis-queue")
+factory, _ := queue.NewUnifiedFactory(config)
+q, _ := queue.GetOrCreateSafe[[]byte](factory, "redis-queue", queue.NewJsonMessage([]byte{}))
 ```
 
 ### Using Existing Redis Client
@@ -139,7 +155,8 @@ config := queue.UnifiedQueueConfig{
     RedisClient: rdb, // Use existing client
 }
 
-factory, _ := queue.NewUnifiedFactory(config, queue.NewJsonMessage([]byte{}))
+factory, _ := queue.NewUnifiedFactory(config)
+q, _ := queue.GetOrCreateSafe[[]byte](factory, "my-queue", queue.NewJsonMessage([]byte{}))
 ```
 
 ### JSON Configuration
@@ -164,7 +181,8 @@ Configuration can be loaded from JSON:
 ```go
 var config queue.UnifiedQueueConfig
 json.Unmarshal(configJSON, &config)
-factory, _ := queue.NewUnifiedFactory(config, queue.NewJsonMessage([]byte{}))
+factory, _ := queue.NewUnifiedFactory(config)
+q, _ := queue.GetOrCreateSafe[[]byte](factory, "my-queue", queue.NewJsonMessage([]byte{}))
 ```
 
 ### Custom Queue Backend
