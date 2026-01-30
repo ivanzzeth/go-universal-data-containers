@@ -159,6 +159,42 @@ factory, _ := queue.NewUnifiedFactory(config)
 q, _ := queue.GetOrCreateSafe[[]byte](factory, "my-queue", queue.NewJsonMessage([]byte{}))
 ```
 
+### Using Non-Generic Factories (Multiple Types + Discovery)
+
+For scenarios requiring multiple message types or queue discovery without UnifiedFactory, use the non-generic factories:
+
+```go
+import "github.com/redis/go-redis/v9"
+
+// Redis non-generic factory
+rdb := redis.NewClient(&redis.Options{Addr: "localhost:6379"})
+redisFactory, _ := queue.NewRedisFactory(rdb)
+
+// Create queues of different types from the same factory
+bytesQueue, _ := queue.RedisGetOrCreateSafe[[]byte](redisFactory, "bytes-queue", queue.NewJsonMessage([]byte{}))
+ordersQueue, _ := queue.RedisGetOrCreateSafe[Order](redisFactory, "orders-queue", queue.NewJsonMessage(Order{}))
+
+// Memory non-generic factory
+memFactory, _ := queue.NewMemoryQueueFactory()
+q1, _ := queue.MemoryGetOrCreateSafe[[]byte](memFactory, "queue1", queue.NewJsonMessage([]byte{}))
+q2, _ := queue.MemoryGetOrCreateSafe[MyType](memFactory, "queue2", queue.NewJsonMessage(MyType{}))
+
+// Both factories implement Discoverable interface
+queues, _ := redisFactory.DiscoverQueues(ctx, "orders-*")
+queues, _ := memFactory.DiscoverQueues(ctx, "")
+```
+
+### Factory Types Summary
+
+| Factory | Type Parameter | Discoverable | Use Case |
+|---------|---------------|--------------|----------|
+| `MemoryFactory[T]` | At construction | No | Single type, simple API |
+| `RedisQueueFactory[T]` | At construction | No | Single type, simple API |
+| `MemoryQueueFactory` | At queue creation | Yes | Multiple types, discovery |
+| `RedisFactory` | At queue creation | Yes | Multiple types, discovery |
+| `UnifiedFactory` | At queue creation | Yes | Config-driven, backend switching |
+| `TypedFactory[T]` | At construction | Yes (via inner) | Convenience wrapper |
+
 ### JSON Configuration
 
 Configuration can be loaded from JSON:

@@ -10,12 +10,12 @@ import (
 )
 
 var (
-	_ Factory[any]           = &MemoryFactory[any]{}
-	_ Queue[any]             = &MemoryQueue[any]{}
-	_ RecoverableQueue[any]  = &MemoryQueue[any]{}
-	_ Purgeable              = &MemoryQueue[any]{}
-	_ DLQer[any]             = &MemoryQueue[any]{}
-	_ StatsProvider          = &MemoryQueue[any]{}
+	_ Factory[any]            = &MemoryFactory[any]{}
+	_ Queue[any]              = &MemoryQueue[any]{}
+	_ RecoverableQueue[any]   = &MemoryQueue[any]{}
+	_ Purgeable               = &MemoryQueue[any]{}
+	_ DLQer[any]              = &MemoryQueue[any]{}
+	_ StatsProvider           = &MemoryQueue[any]{}
 	_ RetryQueueEnqueuer[any] = &MemoryQueue[any]{}
 )
 

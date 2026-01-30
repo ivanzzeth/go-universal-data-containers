@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRedisQueueDiscovery_DiscoverQueues(t *testing.T) {
+func TestRedisFactory_DiscoverQueues(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	rdb := redis.NewClient(&redis.Options{
@@ -35,10 +35,11 @@ func TestRedisQueueDiscovery_DiscoverQueues(t *testing.T) {
 	// DLQ queues
 	rdb.RPush(ctx, prefix+"orders::DLQ", "dlq1")
 
-	discovery := NewRedisQueueDiscovery(rdb)
+	factory, err := NewRedisFactory(rdb)
+	require.NoError(t, err)
 
 	// Test discovering all queues
-	queues, err := discovery.DiscoverQueues(ctx, "")
+	queues, err := factory.DiscoverQueues(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, queues, 3)
 
@@ -59,7 +60,7 @@ func TestRedisQueueDiscovery_DiscoverQueues(t *testing.T) {
 	assert.Equal(t, QueueInfoTypeMain, queueMap["orders"].Type)
 }
 
-func TestRedisQueueDiscovery_DiscoverQueues_WithPattern(t *testing.T) {
+func TestRedisFactory_DiscoverQueues_WithPattern(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	rdb := redis.NewClient(&redis.Options{
@@ -77,10 +78,11 @@ func TestRedisQueueDiscovery_DiscoverQueues_WithPattern(t *testing.T) {
 	rdb.RPush(ctx, prefix+"payments-us", "msg1")
 	rdb.RPush(ctx, prefix+"notifications", "msg1")
 
-	discovery := NewRedisQueueDiscovery(rdb)
+	factory, err := NewRedisFactory(rdb)
+	require.NoError(t, err)
 
 	// Test pattern matching with prefix
-	queues, err := discovery.DiscoverQueues(ctx, "orders-*")
+	queues, err := factory.DiscoverQueues(ctx, "orders-*")
 	require.NoError(t, err)
 	require.Len(t, queues, 2)
 
@@ -92,7 +94,7 @@ func TestRedisQueueDiscovery_DiscoverQueues_WithPattern(t *testing.T) {
 	assert.Contains(t, names, "orders-eu")
 }
 
-func TestRedisQueueDiscovery_DiscoverAllQueues(t *testing.T) {
+func TestRedisFactory_DiscoverAllQueues(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	rdb := redis.NewClient(&redis.Options{
@@ -109,10 +111,11 @@ func TestRedisQueueDiscovery_DiscoverAllQueues(t *testing.T) {
 	rdb.RPush(ctx, prefix+"orders::retry", "retry1")
 	rdb.RPush(ctx, prefix+"orders::DLQ", "dlq1", "dlq2")
 
-	discovery := NewRedisQueueDiscovery(rdb)
+	factory, err := NewRedisFactory(rdb)
+	require.NoError(t, err)
 
 	// Test discovering all queues including retry and DLQ
-	queues, err := discovery.DiscoverAllQueues(ctx, "")
+	queues, err := factory.DiscoverAllQueues(ctx, "")
 	require.NoError(t, err)
 	require.Len(t, queues, 3)
 
@@ -295,7 +298,63 @@ func TestMatchPattern(t *testing.T) {
 	}
 }
 
-func TestRedisQueueDiscovery_EmptyDatabase(t *testing.T) {
+func TestMemoryQueueFactory_DiscoverQueues(t *testing.T) {
+	ctx := context.Background()
+
+	factory, err := NewMemoryQueueFactory()
+	require.NoError(t, err)
+
+	// Create some queues
+	_, err = MemoryGetOrCreateSafe[[]byte](factory, "orders-queue", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	_, err = MemoryGetOrCreateSafe[[]byte](factory, "payments-queue", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	// Discover queues
+	queues, err := factory.DiscoverQueues(ctx, "")
+	require.NoError(t, err)
+	require.Len(t, queues, 2)
+
+	names := make(map[string]bool)
+	for _, q := range queues {
+		names[q.Name] = true
+	}
+
+	assert.True(t, names["orders-queue"])
+	assert.True(t, names["payments-queue"])
+}
+
+func TestMemoryQueueFactory_DiscoverQueues_WithPattern(t *testing.T) {
+	ctx := context.Background()
+
+	factory, err := NewMemoryQueueFactory()
+	require.NoError(t, err)
+
+	// Create queues with different prefixes
+	_, err = MemoryGetOrCreateSafe[[]byte](factory, "orders-us", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	_, err = MemoryGetOrCreateSafe[[]byte](factory, "orders-eu", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	_, err = MemoryGetOrCreateSafe[[]byte](factory, "payments-us", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	// Discover with pattern
+	queues, err := factory.DiscoverQueues(ctx, "orders-*")
+	require.NoError(t, err)
+	require.Len(t, queues, 2)
+
+	names := make([]string, len(queues))
+	for i, q := range queues {
+		names[i] = q.Name
+	}
+	assert.Contains(t, names, "orders-us")
+	assert.Contains(t, names, "orders-eu")
+}
+
+func TestRedisFactory_EmptyDatabase(t *testing.T) {
 	s := miniredis.RunT(t)
 
 	rdb := redis.NewClient(&redis.Options{
@@ -305,9 +364,10 @@ func TestRedisQueueDiscovery_EmptyDatabase(t *testing.T) {
 
 	ctx := context.Background()
 
-	discovery := NewRedisQueueDiscovery(rdb)
+	factory, err := NewRedisFactory(rdb)
+	require.NoError(t, err)
 
-	queues, err := discovery.DiscoverQueues(ctx, "")
+	queues, err := factory.DiscoverQueues(ctx, "")
 	require.NoError(t, err)
 	assert.Empty(t, queues)
 }
