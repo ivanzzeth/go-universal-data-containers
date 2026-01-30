@@ -597,3 +597,109 @@ func TestUnifiedFactory_ConfigImmutability(t *testing.T) {
 	assert.Equal(t, 100, originalConfig.MaxSize, "MaxSize should not be modified")
 	assert.Equal(t, byte('{'), originalConfig.BackendConfig[0], "BackendConfig should not be modified")
 }
+
+// TestUnifiedFactory_ClearCache tests that ClearCache removes all cached queues
+func TestUnifiedFactory_ClearCache(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:    QueueTypeMemory,
+		MaxSize: 100,
+	}
+
+	factory, err := NewUnifiedFactory(config)
+	require.NoError(t, err)
+
+	// Create multiple queues
+	q1, err := GetOrCreateSafe[[]byte](factory, "cache-test-1", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+	q2, err := GetOrCreateSafe[[]byte](factory, "cache-test-2", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	// Verify cache size
+	assert.Equal(t, 2, factory.CacheSize())
+
+	// Close queues
+	q1.Close()
+	q2.Close()
+
+	// Clear cache
+	factory.ClearCache()
+	assert.Equal(t, 0, factory.CacheSize())
+
+	// Create new queue with same name - should create new instance
+	q3, err := GetOrCreateSafe[[]byte](factory, "cache-test-1", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+	assert.NotEqual(t, q1, q3, "should create new queue after cache clear")
+
+	q3.Close()
+}
+
+// TestUnifiedFactory_RemoveFromCache tests that RemoveFromCache removes specific queue
+func TestUnifiedFactory_RemoveFromCache(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:    QueueTypeMemory,
+		MaxSize: 100,
+	}
+
+	factory, err := NewUnifiedFactory(config)
+	require.NoError(t, err)
+
+	// Create multiple queues
+	q1, err := GetOrCreateSafe[[]byte](factory, "remove-test-1", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+	q2, err := GetOrCreateSafe[[]byte](factory, "remove-test-2", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+
+	assert.Equal(t, 2, factory.CacheSize())
+
+	// Close and remove one queue
+	q1.Close()
+	removed := factory.RemoveFromCache("remove-test-1")
+	assert.True(t, removed)
+	assert.Equal(t, 1, factory.CacheSize())
+
+	// Remove non-existent queue
+	removed = factory.RemoveFromCache("non-existent")
+	assert.False(t, removed)
+	assert.Equal(t, 1, factory.CacheSize())
+
+	// Create new queue with same name - should create new instance
+	q3, err := GetOrCreateSafe[[]byte](factory, "remove-test-1", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+	assert.NotEqual(t, q1, q3, "should create new queue after removal")
+
+	// q2 should still be the same cached instance
+	q2Again, err := GetOrCreateSafe[[]byte](factory, "remove-test-2", NewJsonMessage([]byte{}))
+	require.NoError(t, err)
+	assert.Equal(t, q2, q2Again, "unremoved queue should still be cached")
+
+	q2.Close()
+	q3.Close()
+}
+
+// TestUnifiedFactory_CacheSize tests that CacheSize returns correct count
+func TestUnifiedFactory_CacheSize(t *testing.T) {
+	config := UnifiedQueueConfig{
+		Type:    QueueTypeMemory,
+		MaxSize: 100,
+	}
+
+	factory, err := NewUnifiedFactory(config)
+	require.NoError(t, err)
+
+	// Initial cache should be empty
+	assert.Equal(t, 0, factory.CacheSize())
+
+	// Create queues
+	queues := make([]SafeQueue[[]byte], 0)
+	for i := 0; i < 5; i++ {
+		q, err := GetOrCreateSafe[[]byte](factory, "size-test-"+string(rune('a'+i)), NewJsonMessage([]byte{}))
+		require.NoError(t, err)
+		queues = append(queues, q)
+		assert.Equal(t, i+1, factory.CacheSize())
+	}
+
+	// Cleanup
+	for _, q := range queues {
+		q.Close()
+	}
+}

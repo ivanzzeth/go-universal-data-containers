@@ -399,6 +399,42 @@ func (f *UnifiedFactory) Config() UnifiedQueueConfig {
 	return configCopy
 }
 
+// ClearCache removes all cached queues from the factory.
+// This is primarily intended for testing scenarios where tests need to
+// ensure isolation between test cases. After clearing the cache, subsequent
+// GetOrCreateSafe calls will create new queue instances.
+//
+// WARNING: This does not close the cached queues. Callers should ensure
+// all queues are properly stopped/closed before clearing the cache.
+func (f *UnifiedFactory) ClearCache() {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	f.cache = make(map[string]any)
+}
+
+// RemoveFromCache removes a specific queue from the cache by name.
+// Returns true if the queue was found and removed, false otherwise.
+// This is useful for removing a single queue that has been closed.
+//
+// WARNING: This does not close the queue. Callers should ensure the queue
+// is properly stopped/closed before removing it from the cache.
+func (f *UnifiedFactory) RemoveFromCache(name string) bool {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	if _, ok := f.cache[name]; ok {
+		delete(f.cache, name)
+		return true
+	}
+	return false
+}
+
+// CacheSize returns the number of queues currently in the cache.
+func (f *UnifiedFactory) CacheSize() int {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	return len(f.cache)
+}
+
 // Deprecated: ValidateUnifiedConfig is deprecated, use NewUnifiedFactory which validates internally.
 // Kept for backward compatibility.
 func ValidateUnifiedConfig(config UnifiedQueueConfig) error {
