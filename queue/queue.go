@@ -140,3 +140,34 @@ type StatsProvider interface {
 	// Stats returns the current queue statistics
 	Stats() QueueStats
 }
+
+// QueueInfo contains metadata about a discovered queue.
+// This is useful for queue management services to discover and manage queues.
+type QueueInfo struct {
+	// Name is the queue name (without namespace prefix)
+	Name string
+	// Key is the full Redis key (with namespace prefix)
+	Key string
+	// Type indicates the queue type: "main", "retry", or "dlq"
+	Type string
+	// Depth is the current number of messages in the queue (optional, may be 0 if not fetched)
+	Depth int64
+}
+
+// Queue type constants for QueueInfo.Type
+const (
+	QueueInfoTypeMain  = "main"
+	QueueInfoTypeRetry = "retry"
+	QueueInfoTypeDLQ   = "dlq"
+)
+
+// Discoverable is an optional interface for backends that support queue discovery.
+// This is useful for queue management services to discover existing queues
+// in persistent backends like Redis.
+type Discoverable interface {
+	// DiscoverQueues returns a list of all queue names in the backend.
+	// The pattern parameter supports glob-style matching (e.g., "*", "orders-*").
+	// An empty pattern matches all queues.
+	// Returns only main queue names (excludes retry and DLQ suffixes).
+	DiscoverQueues(ctx context.Context, pattern string) ([]QueueInfo, error)
+}

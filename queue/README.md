@@ -196,6 +196,33 @@ func init() {
 }
 ```
 
+### Queue Discovery
+
+For queue management services, you can discover existing queues in persistent backends (Redis):
+
+```go
+// Discover all queues
+queues, err := factory.DiscoverQueues(ctx, "")
+for _, q := range queues {
+    fmt.Printf("Queue: %s, Depth: %d\n", q.Name, q.Depth)
+}
+
+// Discover with pattern matching
+ordersQueues, _ := factory.DiscoverQueues(ctx, "orders-*")
+
+// Discover all queues including retry and DLQ
+allQueues, _ := factory.DiscoverAllQueues(ctx, "")
+for _, q := range allQueues {
+    fmt.Printf("Queue: %s, Type: %s, Depth: %d\n", q.Name, q.Type, q.Depth)
+}
+```
+
+Pattern matching supports:
+- `*` - match all
+- `prefix*` - match queues starting with prefix
+- `*suffix` - match queues ending with suffix
+- `*contains*` - match queues containing substring
+
 ## Subscribe Pattern
 
 For continuous message processing, use the Subscribe pattern:
