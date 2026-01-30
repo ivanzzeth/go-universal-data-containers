@@ -117,3 +117,26 @@ type DLQ[T any] interface {
 type RetryQueueEnqueuer[T any] interface {
 	EnqueueToRetryQueue(ctx context.Context, data T) error
 }
+
+// QueueStats provides queue statistics for monitoring and observability.
+type QueueStats struct {
+	// Depth is the current number of messages in the main queue
+	Depth int64
+	// RetryDepth is the current number of messages in the retry queue
+	RetryDepth int64
+	// Inflight is the number of messages currently being processed
+	Inflight int64
+	// ConsumerCount is the number of registered callbacks/consumers
+	ConsumerCount int
+	// Capacity is the maximum capacity of the queue (-1 for unlimited)
+	Capacity int
+	// RetryCapacity is the maximum capacity of the retry queue
+	RetryCapacity int
+}
+
+// StatsProvider is an optional interface for queues that support statistics reporting.
+// Used for monitoring and observability.
+type StatsProvider interface {
+	// Stats returns the current queue statistics
+	Stats() QueueStats
+}

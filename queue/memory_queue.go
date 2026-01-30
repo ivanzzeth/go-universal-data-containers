@@ -8,11 +8,13 @@ import (
 )
 
 var (
-	_ Factory[any]          = &MemoryFactory[any]{}
-	_ Queue[any]            = &MemoryQueue[any]{}
-	_ RecoverableQueue[any] = &MemoryQueue[any]{}
-	_ Purgeable             = &MemoryQueue[any]{}
-	_ DLQer[any]            = &MemoryQueue[any]{}
+	_ Factory[any]           = &MemoryFactory[any]{}
+	_ Queue[any]             = &MemoryQueue[any]{}
+	_ RecoverableQueue[any]  = &MemoryQueue[any]{}
+	_ Purgeable              = &MemoryQueue[any]{}
+	_ DLQer[any]             = &MemoryQueue[any]{}
+	_ StatsProvider          = &MemoryQueue[any]{}
+	_ RetryQueueEnqueuer[any] = &MemoryQueue[any]{}
 )
 
 type MemoryFactory[T any] struct {
@@ -384,5 +386,31 @@ func (q *MemoryQueue[T]) EnqueueToRetryQueue(ctx context.Context, data T) error 
 		return ErrQueueClosed
 	case q.retryChan <- packedData:
 		return nil
+	}
+}
+
+// Stats returns the current queue statistics.
+// Implements the StatsProvider interface.
+func (q *MemoryQueue[T]) Stats() QueueStats {
+	mainDepth := int64(len(q.dataChan))
+	retryDepth := int64(len(q.retryChan))
+
+	// Calculate capacity
+	capacity := q.config.MaxSize
+	if capacity == UnlimitedSize {
+		capacity = q.config.UnlimitedCapacity
+	}
+
+	retryCapacity := q.config.RetryQueueCapacity
+	if retryCapacity <= 0 {
+		retryCapacity = DefaultRetryQueueCapacity
+	}
+
+	return QueueStats{
+		Depth:         mainDepth,
+		RetryDepth:    retryDepth,
+		ConsumerCount: len(q.GetCallbacks()),
+		Capacity:      capacity,
+		RetryCapacity: retryCapacity,
 	}
 }

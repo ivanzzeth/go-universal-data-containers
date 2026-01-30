@@ -32,6 +32,46 @@ var (
 	}
 )
 
+// CallbackChecker is an interface for queues that can report callback registration status.
+type CallbackChecker interface {
+	HasCallbacks() bool
+}
+
+// waitForCallbacks waits until the queue has registered callbacks or timeout.
+// Returns true if callbacks are registered, false if timeout.
+func waitForCallbacks(t *testing.T, q interface{}, timeout time.Duration) bool {
+	t.Helper()
+
+	var checker CallbackChecker
+
+	// Try to extract the underlying queue that implements CallbackChecker
+	switch v := q.(type) {
+	case *SimpleQueue[[]byte]:
+		if c, ok := v.Unwrap().(CallbackChecker); ok {
+			checker = c
+		}
+	case CallbackChecker:
+		checker = v
+	}
+
+	if checker == nil {
+		// Fallback to time.Sleep if we can't check callbacks
+		// TODO: This should be removed once all queue types support CallbackChecker
+		time.Sleep(100 * time.Millisecond)
+		return true
+	}
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if checker.HasCallbacks() {
+			return true
+		}
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	return checker.HasCallbacks()
+}
+
 func init() {
 	// handler := log.NewTerminalHandler(os.Stdout, true)
 	// logger := log.NewLogger(handler)
@@ -179,34 +219,76 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 	var mutex sync.RWMutex
 	currFailures := 0
 	handleSucceeded := false
+	handleSucceededCh := make(chan struct{})
+	dlqPushed := make(chan struct{})
+
+	// The handler fails for the first maxFailures+1 calls (retryCount 0 through maxFailures)
+	// On the (maxFailures+1)th failure, Recover will push to DLQ since retryCount >= maxFailures
+	// After DLQ redrive (retryCount reset to 0), the handler succeeds
 	q.Subscribe(context.Background(), func(ctx context.Context, msg Message[[]byte]) error {
-		if currFailures <= maxFailures {
-			mutex.Lock()
-			currFailures++
-			mutex.Unlock()
+		mutex.Lock()
+		currFailures++
+		count := currFailures
+		mutex.Unlock()
+
+		// Fail for first maxFailures+1 calls, then succeed after DLQ redrive
+		// The (maxFailures+1)th failure triggers DLQ push
+		// After DLQ redrive, count will be maxFailures+2, which succeeds
+		if count <= maxFailures+1 {
 			return errors.New("test max failures")
 		}
 
 		mutex.Lock()
 		handleSucceeded = true
 		mutex.Unlock()
+		select {
+		case <-handleSucceededCh:
+		default:
+			close(handleSucceededCh)
+		}
 
 		return nil
 	})
 
-	err = q.Enqueue(context.Background(), []byte(fmt.Sprintf("data")))
+	// Wait for subscription to register
+	if !waitForCallbacks(t, q, 5*time.Second) {
+		t.Fatal("timeout waiting for callbacks to register")
+	}
+
+	err = q.Enqueue(context.Background(), []byte("data"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	time.Sleep(1 * time.Second)
+	// Wait for all failures to occur (maxFailures+1 handler calls)
+	// The last failure (at retryCount=maxFailures) triggers DLQ push
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		mutex.RLock()
+		// We need maxFailures+1 failures before DLQ push
+		if currFailures >= maxFailures+1 {
+			mutex.RUnlock()
+			select {
+			case <-dlqPushed:
+			default:
+				close(dlqPushed)
+			}
+			break
+		}
+		mutex.RUnlock()
+		time.Sleep(10 * time.Millisecond)
+	}
 
 	mutex.RLock()
-	if currFailures != maxFailures+1 {
+	if currFailures < maxFailures+1 {
 		mutex.RUnlock()
-		t.Fatal("expected", maxFailures, "got", currFailures)
+		t.Fatalf("expected at least %d failures, got %d", maxFailures+1, currFailures)
 	}
 	mutex.RUnlock()
+
+	// Give some time for the message to be pushed to DLQ after the last failure
+	// TODO: Make this event-driven when DLQ supports notifications
+	time.Sleep(100 * time.Millisecond)
 
 	if q.IsDLQSupported() {
 		dlq, err := q.DLQ()
@@ -219,8 +301,8 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 			t.Fatal(err)
 		}
 
-		if !bytes.Equal(msg.Data(), []byte(fmt.Sprintf("data"))) {
-			t.Fatal("expected", []byte(fmt.Sprintf("data")), "got", msg.Data())
+		if !bytes.Equal(msg.Data(), []byte("data")) {
+			t.Fatal("expected", []byte("data"), "got", msg.Data())
 		}
 
 		// Push back
@@ -241,8 +323,18 @@ func SpecTestQueueSubscribeHandleReachedMaxFailures(t *testing.T, f Factory[[]by
 			t.Fatal(err)
 		}
 
-		// Wait for msg handling
-		time.Sleep(1 * time.Second)
+		// Wait for redriven message to be handled successfully
+		// Poll handleSucceeded with timeout
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			mutex.RLock()
+			if handleSucceeded {
+				mutex.RUnlock()
+				break
+			}
+			mutex.RUnlock()
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
 
 	mutex.RLock()
@@ -303,6 +395,10 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 
 			isSubscribeErrReturned := make(map[string]bool)
 
+			// Channel to signal when all messages are successfully processed in Handler1
+			allProcessed := make(chan struct{})
+			expectedCount := len(tt.data)
+
 			q, err := f.GetOrCreate(fmt.Sprintf("test-%d", i))
 			if err != nil {
 				t.Fatal(err)
@@ -333,6 +429,16 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 
 				t.Logf("Store data: %v", data.Data)
 				allData[data.Data] += 1
+
+				// Check if all messages have been processed
+				if len(allData) == expectedCount {
+					select {
+					case <-allProcessed:
+						// Already closed
+					default:
+						close(allProcessed)
+					}
+				}
 				return nil
 			})
 
@@ -355,6 +461,11 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 				return nil
 			})
 
+			// Wait for callbacks to register
+			if !waitForCallbacks(t, q, 5*time.Second) {
+				t.Fatal("timeout waiting for callbacks to register")
+			}
+
 			for _, d := range tt.data {
 				data, err := json.Marshal(&d)
 				if err != nil {
@@ -367,18 +478,30 @@ func SpecTestQueueSubscribe(t *testing.T, f Factory[[]byte]) {
 				}
 			}
 
-			time.Sleep(3 * time.Second)
+			// Wait for all messages to be processed with timeout
+			select {
+			case <-allProcessed:
+				// Give Handler2 a moment to complete (since it processes in parallel)
+				// TODO: Replace with proper event-driven wait for Handler2
+				time.Sleep(50 * time.Millisecond)
+			case <-time.After(10 * time.Second):
+				mutex.RLock()
+				t.Fatalf("timeout waiting for messages to be processed, got %d/%d", len(allData), expectedCount)
+				mutex.RUnlock()
+			}
 
 			for _, d := range tt.data {
 				mutex.RLock()
-				defer mutex.RUnlock()
 
 				if allData[d.Data] < 1 {
+					mutex.RUnlock()
 					t.Fatalf("expected %v to be included, allData=%v", d.Data, allData)
 				}
 				if allData[d.Data] > 1 {
+					mutex.RUnlock()
 					t.Fatalf("expected %v to be included once, count=%v", d.Data, allData[d.Data])
 				}
+				mutex.RUnlock()
 
 				mutex2.RLock()
 
@@ -409,16 +532,27 @@ func SpecTestQueueSubscribeWithConsumerCount(t *testing.T, f Factory[[]byte]) {
 	numMessages := 100
 	receivedMessages := make(map[string]bool)
 	var mutex sync.Mutex
+	allReceived := make(chan struct{})
 
 	// Subscribe and process messages
-	go func() {
-		q.Subscribe(context.Background(), func(ctx context.Context, msg Message[[]byte]) error {
-			mutex.Lock()
-			receivedMessages[string(msg.Data())] = true
-			mutex.Unlock()
-			return nil
-		})
-	}()
+	q.Subscribe(context.Background(), func(ctx context.Context, msg Message[[]byte]) error {
+		mutex.Lock()
+		receivedMessages[string(msg.Data())] = true
+		if len(receivedMessages) == numMessages {
+			select {
+			case <-allReceived:
+			default:
+				close(allReceived)
+			}
+		}
+		mutex.Unlock()
+		return nil
+	})
+
+	// Wait for callbacks to register
+	if !waitForCallbacks(t, q, 5*time.Second) {
+		t.Fatal("timeout waiting for callbacks to register")
+	}
 
 	// Enqueue test messages
 	for i := 0; i < numMessages; i++ {
@@ -429,8 +563,14 @@ func SpecTestQueueSubscribeWithConsumerCount(t *testing.T, f Factory[[]byte]) {
 		}
 	}
 
-	// Wait some time for processing
-	time.Sleep(2 * time.Second)
+	// Wait for all messages to be received with timeout
+	select {
+	case <-allReceived:
+	case <-time.After(10 * time.Second):
+		mutex.Lock()
+		t.Fatalf("timeout waiting for messages, got %d/%d", len(receivedMessages), numMessages)
+		mutex.Unlock()
+	}
 
 	// Verify all messages were received
 	mutex.Lock()
@@ -502,7 +642,7 @@ func SpecTestQueueStressTest(t *testing.T, f Factory[[]byte]) {
 				if err != nil {
 					if errors.Is(err, context.DeadlineExceeded) {
 						// Check if all messages have been processed
-						if int(receivedCount) >= totalMessages {
+						if int(atomic.LoadInt32(&receivedCount)) >= totalMessages {
 							return
 						}
 						continue

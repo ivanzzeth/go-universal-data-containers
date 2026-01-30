@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -168,14 +169,16 @@ func TestSimpleQueue_BDequeue(t *testing.T) {
 	var msg Message[[]byte]
 	var dequeueErr error
 	var wg sync.WaitGroup
+	dequeueStarted := make(chan struct{})
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		close(dequeueStarted) // Signal that dequeue goroutine has started
 		msg, dequeueErr = q.BDequeue(ctx)
 	}()
 
-	// Enqueue after a short delay
-	time.Sleep(100 * time.Millisecond)
+	// Wait for dequeue goroutine to start before enqueueing
+	<-dequeueStarted
 	err = q.Enqueue(ctx, []byte("test data"))
 	require.NoError(t, err)
 
@@ -206,8 +209,8 @@ func TestSimpleQueue_Subscribe(t *testing.T) {
 		return nil
 	})
 
-	// Give subscription time to register
-	time.Sleep(100 * time.Millisecond)
+	// Wait for subscription to register
+	require.True(t, waitForCallbacks(t, q, 5*time.Second), "timeout waiting for callbacks to register")
 
 	err = q.Enqueue(ctx, data)
 	require.NoError(t, err)
@@ -230,24 +233,37 @@ func TestSimpleQueue_Subscribe_Error(t *testing.T) {
 	data := []byte("test data")
 
 	testErr := common.ErrNotImplemented
-	var wg sync.WaitGroup
-	wg.Add(1)
+	var callCount int32
+	done := make(chan struct{})
 
 	q.Subscribe(ctx, func(ctx context.Context, msg Message[[]byte]) error {
-		defer wg.Done()
-		return testErr
+		count := atomic.AddInt32(&callCount, 1)
+		// First call returns error (triggers recovery)
+		// Second call (after recovery) succeeds
+		if count == 1 {
+			return testErr
+		}
+		close(done)
+		return nil
 	})
 
-	// Give subscription time to register
-	time.Sleep(100 * time.Millisecond)
+	// Wait for subscription to register
+	require.True(t, waitForCallbacks(t, q, 5*time.Second), "timeout waiting for callbacks to register")
 
 	err = q.Enqueue(ctx, data)
 	require.NoError(t, err)
 
-	// Wait for handler to process
-	wg.Wait()
+	// Wait for handler to process (both error and retry)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for message processing")
+	}
+
 	// Message should be recovered if queue supports it
 	assert.True(t, q.IsRecoverable())
+	// Handler should have been called twice (error + retry)
+	assert.GreaterOrEqual(t, atomic.LoadInt32(&callCount), int32(2))
 }
 
 func TestSimpleQueue_Recover(t *testing.T) {

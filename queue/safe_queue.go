@@ -561,3 +561,18 @@ func (q *SimpleQueue[T]) IsDLQSupported() bool {
 	_, ok := q.queue.(DLQer[T])
 	return ok
 }
+
+// Stats returns the current queue statistics if the underlying queue supports it.
+// Returns zero-valued QueueStats if not supported.
+func (q *SimpleQueue[T]) Stats() QueueStats {
+	if sp, ok := q.queue.(StatsProvider); ok {
+		return sp.Stats()
+	}
+	return QueueStats{}
+}
+
+// IsStatsProvider returns true if the underlying queue implements StatsProvider.
+func (q *SimpleQueue[T]) IsStatsProvider() bool {
+	_, ok := q.queue.(StatsProvider)
+	return ok
+}

@@ -14,9 +14,11 @@ var (
 	_ Queue[any]   = (*RedisQueue[any])(nil)
 	_ Factory[any] = (*RedisQueueFactory[any])(nil)
 
-	_ RecoverableQueue[any] = &RedisQueue[any]{}
-	_ Purgeable             = &RedisQueue[any]{}
-	_ DLQer[any]            = &RedisQueue[any]{}
+	_ RecoverableQueue[any]   = &RedisQueue[any]{}
+	_ Purgeable               = &RedisQueue[any]{}
+	_ DLQer[any]              = &RedisQueue[any]{}
+	_ StatsProvider           = &RedisQueue[any]{}
+	_ RetryQueueEnqueuer[any] = &RedisQueue[any]{}
 )
 
 type RedisQueueFactory[T any] struct {
@@ -340,4 +342,37 @@ func (q *RedisQueue[T]) EnqueueToRetryQueue(ctx context.Context, data T) error {
 
 	// Push to retry queue (RPUSH to maintain order)
 	return q.redisClient.RPush(ctx, q.GetRetryQueueKey(), packedData).Err()
+}
+
+// Stats returns the current queue statistics.
+// Implements the StatsProvider interface.
+func (q *RedisQueue[T]) Stats() QueueStats {
+	ctx := context.Background()
+
+	// Get main queue depth
+	mainDepth, err := q.redisClient.LLen(ctx, q.GetQueueKey()).Result()
+	if err != nil {
+		mainDepth = 0
+	}
+
+	// Get retry queue depth
+	retryDepth, err := q.redisClient.LLen(ctx, q.GetRetryQueueKey()).Result()
+	if err != nil {
+		retryDepth = 0
+	}
+
+	// Calculate capacity
+	capacity := q.config.MaxSize
+	retryCapacity := q.config.RetryQueueCapacity
+	if retryCapacity <= 0 {
+		retryCapacity = DefaultRetryQueueCapacity
+	}
+
+	return QueueStats{
+		Depth:         mainDepth,
+		RetryDepth:    retryDepth,
+		ConsumerCount: len(q.GetCallbacks()),
+		Capacity:      capacity,
+		RetryCapacity: retryCapacity,
+	}
 }
