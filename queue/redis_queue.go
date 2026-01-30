@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ivanzzeth/go-universal-data-containers/metrics"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -302,6 +303,9 @@ func (q *RedisQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 		if err != nil {
 			return err
 		}
+
+		// Increment DLQ messages counter
+		metrics.MetricQueueDLQMessagesTotal.WithLabelValues(q.name).Inc()
 
 		return nil
 	}

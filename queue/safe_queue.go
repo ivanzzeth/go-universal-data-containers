@@ -59,10 +59,18 @@ func NewSimpleQueue[T any](queue Queue[T], opts ...SimpleQueueOption) (*SimpleQu
 		opt(cfg)
 	}
 
-	return &SimpleQueue[T]{
+	q := &SimpleQueue[T]{
 		queue:  queue,
 		logger: cfg.Logger,
-	}, nil
+	}
+
+	// Initialize capacity metrics
+	q.initializeCapacityMetrics()
+
+	// Initialize config info metric
+	q.initializeConfigInfoMetric()
+
+	return q, nil
 }
 
 // logIfEnabled is a helper method to check if logger is set
@@ -125,8 +133,12 @@ func (q *SimpleQueue[T]) Enqueue(ctx context.Context, data T) error {
 			Msg("Enqueuing message")
 	}
 
+	startTime := time.Now()
 	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
 	err := q.queue.Enqueue(ctx, data)
+	duration := time.Since(startTime)
+	metrics.MetricQueueEnqueueDuration.WithLabelValues(q.Name()).Observe(duration.Seconds())
+
 	if err != nil {
 		metrics.MetricQueueEnqueueErrorTotal.WithLabelValues(q.Name()).Inc()
 		if logger := q.logIfEnabled(); logger != nil {
@@ -138,6 +150,9 @@ func (q *SimpleQueue[T]) Enqueue(ctx context.Context, data T) error {
 		}
 		return err
 	}
+
+	// Update depth metrics after successful enqueue
+	q.updateDepthMetrics()
 
 	if logger := q.logIfEnabled(); logger != nil {
 		logger.Debug().
@@ -157,8 +172,12 @@ func (q *SimpleQueue[T]) BEnqueue(ctx context.Context, data T) error {
 			Msg("Blocking enqueue: waiting for queue space")
 	}
 
+	startTime := time.Now()
 	metrics.MetricQueueEnqueueTotal.WithLabelValues(q.Name()).Inc()
 	err := q.queue.BEnqueue(ctx, data)
+	duration := time.Since(startTime)
+	metrics.MetricQueueEnqueueDuration.WithLabelValues(q.Name()).Observe(duration.Seconds())
+
 	if err != nil {
 		metrics.MetricQueueEnqueueErrorTotal.WithLabelValues(q.Name()).Inc()
 		if logger := q.logIfEnabled(); logger != nil {
@@ -170,6 +189,9 @@ func (q *SimpleQueue[T]) BEnqueue(ctx context.Context, data T) error {
 		}
 		return err
 	}
+
+	// Update depth metrics after successful enqueue
+	q.updateDepthMetrics()
 
 	if logger := q.logIfEnabled(); logger != nil {
 		logger.Info().
@@ -189,8 +211,12 @@ func (q *SimpleQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 			Msg("Dequeuing message")
 	}
 
+	startTime := time.Now()
 	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
 	data, err := q.queue.Dequeue(ctx)
+	duration := time.Since(startTime)
+	metrics.MetricQueueDequeueDuration.WithLabelValues(q.Name()).Observe(duration.Seconds())
+
 	if err != nil {
 		metrics.MetricQueueDequeueErrorTotal.WithLabelValues(q.Name()).Inc()
 		if logger := q.logIfEnabled(); logger != nil {
@@ -202,6 +228,13 @@ func (q *SimpleQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 		}
 		return nil, err
 	}
+
+	// Update depth metrics after successful dequeue
+	q.updateDepthMetrics()
+
+	// Record message age (time since creation)
+	messageAge := time.Since(data.CreatedAt())
+	metrics.MetricQueueMessageAge.WithLabelValues(q.Name()).Observe(messageAge.Seconds())
 
 	if logger := q.logIfEnabled(); logger != nil {
 		logger.Info().
@@ -224,8 +257,12 @@ func (q *SimpleQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 			Msg("Blocking dequeue: waiting for message")
 	}
 
+	startTime := time.Now()
 	metrics.MetricQueueDequeueTotal.WithLabelValues(q.Name()).Inc()
 	data, err := q.queue.BDequeue(ctx)
+	duration := time.Since(startTime)
+	metrics.MetricQueueDequeueDuration.WithLabelValues(q.Name()).Observe(duration.Seconds())
+
 	if err != nil {
 		metrics.MetricQueueDequeueErrorTotal.WithLabelValues(q.Name()).Inc()
 		if logger := q.logIfEnabled(); logger != nil {
@@ -237,6 +274,13 @@ func (q *SimpleQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 		}
 		return nil, err
 	}
+
+	// Update depth metrics after successful dequeue
+	q.updateDepthMetrics()
+
+	// Record message age (time since creation)
+	messageAge := time.Since(data.CreatedAt())
+	metrics.MetricQueueMessageAge.WithLabelValues(q.Name()).Observe(messageAge.Seconds())
 
 	if logger := q.logIfEnabled(); logger != nil {
 		logger.Info().
@@ -261,6 +305,14 @@ func (q *SimpleQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
 
 	q.queue.Subscribe(ctx, func(ctx context.Context, msg Message[T]) error {
 		startTime := time.Now()
+
+		// Increment inflight counter when starting to process
+		metrics.MetricQueueInflight.WithLabelValues(q.Name()).Inc()
+
+		// Record message age (time since creation)
+		messageAge := time.Since(msg.CreatedAt())
+		metrics.MetricQueueMessageAge.WithLabelValues(q.Name()).Observe(messageAge.Seconds())
+
 		if logger := q.logIfEnabled(); logger != nil {
 			logger.Debug().
 				Str("queue_name", q.Name()).
@@ -273,6 +325,13 @@ func (q *SimpleQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
 		defer func() {
 			duration := time.Since(startTime)
 			metrics.MetricQueueHandleDuration.WithLabelValues(q.Name()).Observe(duration.Seconds())
+
+			// Decrement inflight counter when done processing
+			metrics.MetricQueueInflight.WithLabelValues(q.Name()).Dec()
+
+			// Update depth metrics after processing
+			q.updateDepthMetrics()
+
 			if logger := q.logIfEnabled(); logger != nil {
 				logger.Debug().
 					Str("queue_name", q.Name()).
@@ -306,6 +365,9 @@ func (q *SimpleQueue[T]) Subscribe(ctx context.Context, cb Handler[T]) {
 		}
 		return nil
 	})
+
+	// Update consumers active metric after subscription
+	q.updateConsumersMetric()
 
 	if logger := q.logIfEnabled(); logger != nil {
 		logger.Info().
@@ -575,4 +637,51 @@ func (q *SimpleQueue[T]) Stats() QueueStats {
 func (q *SimpleQueue[T]) IsStatsProvider() bool {
 	_, ok := q.queue.(StatsProvider)
 	return ok
+}
+
+// initializeCapacityMetrics sets the capacity gauge metrics on queue creation.
+func (q *SimpleQueue[T]) initializeCapacityMetrics() {
+	if sp, ok := q.queue.(StatsProvider); ok {
+		stats := sp.Stats()
+		metrics.MetricQueueCapacity.WithLabelValues(q.Name(), "main").Set(float64(stats.Capacity))
+		metrics.MetricQueueCapacity.WithLabelValues(q.Name(), "retry").Set(float64(stats.RetryCapacity))
+	}
+}
+
+// initializeConfigInfoMetric sets the config info gauge metric on queue creation.
+func (q *SimpleQueue[T]) initializeConfigInfoMetric() {
+	maxSize := fmt.Sprintf("%d", q.MaxSize())
+	maxHandleFailures := fmt.Sprintf("%d", q.MaxHandleFailures())
+	consumerCount := "0"
+	callbackParallel := "false"
+
+	// Try to get config from the underlying queue
+	if bq, ok := q.queue.(interface{ GetConfig() *Config }); ok {
+		cfg := bq.GetConfig()
+		if cfg != nil {
+			consumerCount = fmt.Sprintf("%d", cfg.ConsumerCount)
+			if cfg.CallbackParallelExecution {
+				callbackParallel = "true"
+			}
+		}
+	}
+
+	metrics.MetricQueueConfigInfo.WithLabelValues(q.Name(), maxSize, maxHandleFailures, consumerCount, callbackParallel).Set(1)
+}
+
+// updateDepthMetrics updates the queue depth gauge metrics.
+func (q *SimpleQueue[T]) updateDepthMetrics() {
+	if sp, ok := q.queue.(StatsProvider); ok {
+		stats := sp.Stats()
+		metrics.MetricQueueDepth.WithLabelValues(q.Name(), "main").Set(float64(stats.Depth))
+		metrics.MetricQueueDepth.WithLabelValues(q.Name(), "retry").Set(float64(stats.RetryDepth))
+	}
+}
+
+// updateConsumersMetric updates the consumers active gauge metric.
+func (q *SimpleQueue[T]) updateConsumersMetric() {
+	if sp, ok := q.queue.(StatsProvider); ok {
+		stats := sp.Stats()
+		metrics.MetricQueueConsumersActive.WithLabelValues(q.Name()).Set(float64(stats.ConsumerCount))
+	}
 }

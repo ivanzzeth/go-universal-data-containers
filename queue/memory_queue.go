@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/ivanzzeth/go-universal-data-containers/metrics"
 )
 
 var (
@@ -320,6 +322,9 @@ func (q *MemoryQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 		if err != nil {
 			return err
 		}
+
+		// Increment DLQ messages counter
+		metrics.MetricQueueDLQMessagesTotal.WithLabelValues(q.name).Inc()
 
 		return nil
 	}
