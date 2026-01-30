@@ -164,10 +164,15 @@ const (
 // Discoverable is an optional interface for backends that support queue discovery.
 // This is useful for queue management services to discover existing queues
 // in persistent backends like Redis.
+// Backend factories (e.g., MemoryFactory, RedisQueueFactory) should implement this interface.
 type Discoverable interface {
 	// DiscoverQueues returns a list of all queue names in the backend.
 	// The pattern parameter supports glob-style matching (e.g., "*", "orders-*").
 	// An empty pattern matches all queues.
 	// Returns only main queue names (excludes retry and DLQ suffixes).
 	DiscoverQueues(ctx context.Context, pattern string) ([]QueueInfo, error)
+
+	// DiscoverAllQueues returns detailed information about all queues including retry and DLQ.
+	// This is useful for queue management services that need to monitor all queue types.
+	DiscoverAllQueues(ctx context.Context, pattern string) ([]QueueInfo, error)
 }

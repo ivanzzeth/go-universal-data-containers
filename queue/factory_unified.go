@@ -149,6 +149,11 @@ type UnifiedFactory struct {
 
 	// redisClient is cached for reuse across multiple queue creations
 	redisClient redis.Cmdable
+
+	// discoverable is the backend-specific discovery implementation
+	// Set during factory creation for built-in types
+	// Custom types should implement Discoverable on their factory
+	discoverable Discoverable
 }
 
 // NewUnifiedFactory creates a new unified queue factory.
@@ -165,7 +170,7 @@ func NewUnifiedFactory(config UnifiedQueueConfig) (*UnifiedFactory, error) {
 		cache:  make(map[string]any),
 	}
 
-	// Pre-create Redis client if needed
+	// Pre-create Redis client and discovery if needed
 	if config.Type == QueueTypeRedis {
 		if config.RedisClient != nil {
 			f.redisClient = config.RedisClient
@@ -189,6 +194,11 @@ func NewUnifiedFactory(config UnifiedQueueConfig) (*UnifiedFactory, error) {
 
 			f.redisClient = client
 		}
+		// Create Redis discovery
+		f.discoverable = NewRedisQueueDiscovery(f.redisClient)
+	} else if config.Type == QueueTypeMemory {
+		// Create Memory discovery (backed by cache)
+		f.discoverable = &memoryDiscovery{factory: f}
 	}
 
 	return f, nil
