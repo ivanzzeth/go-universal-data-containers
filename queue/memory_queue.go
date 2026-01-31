@@ -3,10 +3,7 @@ package queue
 import (
 	"context"
 	"sync"
-	"sync/atomic"
 	"time"
-
-	"github.com/ivanzzeth/go-universal-data-containers/metrics"
 )
 
 var (
@@ -71,12 +68,6 @@ type MemoryQueue[T any] struct {
 	// Retry queue channel - for Recover, processed with higher priority
 	// Ensures FIFO semantics: retry messages are processed before new messages
 	retryChan chan []byte
-
-	// Tracks in-flight messages for graceful shutdown
-	inflightWg sync.WaitGroup
-
-	// Indicates queue is closing, prevents new enqueues
-	closing atomic.Bool
 }
 
 func NewMemoryQueue[T any](name string, defaultMsg Message[T], options ...Option) (*MemoryQueue[T], error) {
@@ -133,14 +124,7 @@ func NewMemoryQueue[T any](name string, defaultMsg Message[T], options ...Option
 }
 
 func (q *MemoryQueue[T]) Close() {
-	// Mark as closing to prevent new enqueues
-	q.closing.Store(true)
-
-	// Wait for all in-flight messages to be processed
-	q.inflightWg.Wait()
-
-	// Now close the exit channel
-	q.BaseQueue.Close()
+	q.BaseQueue.GracefulClose()
 }
 
 func (q *MemoryQueue[T]) Kind() Kind {
@@ -152,7 +136,7 @@ func (q *MemoryQueue[T]) Name() string {
 }
 
 func (q *MemoryQueue[T]) Enqueue(ctx context.Context, data T) error {
-	if q.closing.Load() {
+	if q.IsClosing() {
 		return ErrQueueClosed
 	}
 
@@ -176,7 +160,7 @@ func (q *MemoryQueue[T]) Enqueue(ctx context.Context, data T) error {
 }
 
 func (q *MemoryQueue[T]) BEnqueue(ctx context.Context, data T) error {
-	if q.closing.Load() {
+	if q.IsClosing() {
 		return ErrQueueClosed
 	}
 
@@ -206,13 +190,13 @@ func (q *MemoryQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	// Non-blocking receive
 	select {
 	case packedData := <-q.retryChan:
-		return q.unpackMessage(packedData)
+		return q.UnpackMessage(packedData)
 	default:
 	}
 
 	select {
 	case packedData := <-q.dataChan:
-		return q.unpackMessage(packedData)
+		return q.UnpackMessage(packedData)
 	default:
 		return nil, ErrQueueEmpty
 	}
@@ -224,7 +208,7 @@ func (q *MemoryQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 		// First, try non-blocking read from retry queue
 		select {
 		case packedData := <-q.retryChan:
-			return q.unpackMessage(packedData)
+			return q.UnpackMessage(packedData)
 		default:
 		}
 
@@ -235,25 +219,13 @@ func (q *MemoryQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 		case <-q.ExitChannel():
 			return nil, ErrQueueClosed
 		case packedData := <-q.retryChan:
-			return q.unpackMessage(packedData)
+			return q.UnpackMessage(packedData)
 		case packedData := <-q.dataChan:
-			return q.unpackMessage(packedData)
+			return q.UnpackMessage(packedData)
 		}
 	}
 }
 
-func (q *MemoryQueue[T]) unpackMessage(packedData []byte) (Message[T], error) {
-	msg, err := q.Unpack(packedData)
-	if err != nil {
-		return nil, err
-	}
-
-	if msg.RetryCount() > q.config.MaxHandleFailures {
-		msg.RefreshRetryCount()
-	}
-
-	return msg, nil
-}
 
 func (q *MemoryQueue[T]) run() {
 	ctx := context.Background()
@@ -273,7 +245,7 @@ func (q *MemoryQueue[T]) run() {
 			select {
 			case <-q.ExitChannel():
 				return
-			case <-time.After(10 * time.Millisecond):
+			case <-time.After(DefaultCallbackWaitInterval):
 				continue
 			}
 		}
@@ -305,27 +277,23 @@ func (q *MemoryQueue[T]) run() {
 			}
 		}
 
-		msg, err := q.unpackMessage(packedData)
+		msg, err := q.UnpackMessage(packedData)
 		if err != nil {
 			continue
 		}
 
-		q.inflightWg.Add(1)
+		q.AddInflight()
 		q.TriggerCallbacks(ctx, msg)
-		q.inflightWg.Done()
+		q.DoneInflight()
 	}
 }
 
 func (q *MemoryQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
-	if msg.RetryCount() >= q.config.MaxHandleFailures {
-		err := q.dlq.Enqueue(ctx, msg.Data())
-		if err != nil {
-			return err
-		}
-
-		// Increment DLQ messages counter
-		metrics.MetricQueueDLQMessagesTotal.WithLabelValues(q.name).Inc()
-
+	sentToDLQ, err := q.ShouldSendToDLQ(ctx, msg)
+	if err != nil {
+		return err
+	}
+	if sentToDLQ {
 		return nil
 	}
 
@@ -370,7 +338,7 @@ func (q *MemoryQueue[T]) Purge(ctx context.Context) error {
 // EnqueueToRetryQueue adds a message directly to the retry queue.
 // Used by DLQ.Redrive to ensure recovered messages are processed with priority.
 func (q *MemoryQueue[T]) EnqueueToRetryQueue(ctx context.Context, data T) error {
-	if q.closing.Load() {
+	if q.IsClosing() {
 		return ErrQueueClosed
 	}
 

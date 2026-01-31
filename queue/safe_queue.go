@@ -78,6 +78,56 @@ func (q *SimpleQueue[T]) logIfEnabled() *zerolog.Logger {
 	return q.logger
 }
 
+// retryWithBackoff executes recoverFn with exponential backoff retries.
+// logContext is used to distinguish between panic recovery and error recovery in logs.
+func (q *SimpleQueue[T]) retryWithBackoff(ctx context.Context, msg Message[T], recoverFn func() error, logContext string) error {
+	if logger := q.logIfEnabled(); logger != nil {
+		logger.Trace().
+			Str("queue_name", q.Name()).
+			Int("max_retries", DefaultMaxRetries).
+			Msgf("Attempting to recover message after %s", logContext)
+	}
+
+	var recoverErr error
+	for i := 0; i < DefaultMaxRetries; i++ {
+		recoverErr = recoverFn()
+		if recoverErr != nil {
+			backoff := time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond
+			if logger := q.logIfEnabled(); logger != nil {
+				logger.Trace().
+					Err(recoverErr).
+					Str("queue_name", q.Name()).
+					Int("retry_attempt", i+1).
+					Int("max_retries", DefaultMaxRetries).
+					Dur("backoff", backoff).
+					Msg("Recovery attempt failed, retrying with backoff")
+			}
+			time.Sleep(backoff)
+			continue
+		}
+
+		if logger := q.logIfEnabled(); logger != nil {
+			logger.Trace().
+				Str("queue_name", q.Name()).
+				Int("retry_attempt", i+1).
+				Msgf("Message recovered successfully after %s", logContext)
+		}
+		return nil
+	}
+
+	if recoverErr != nil {
+		metrics.MetricQueueRecoverErrorTotal.WithLabelValues(q.Name()).Inc()
+		if logger := q.logIfEnabled(); logger != nil {
+			logger.Error().
+				Err(recoverErr).
+				Str("queue_name", q.Name()).
+				Int("max_retries", DefaultMaxRetries).
+				Msg("Failed to recover message after all retry attempts")
+		}
+	}
+	return recoverErr
+}
+
 // kindString returns a string representation of the queue kind
 func (q *SimpleQueue[T]) kindString() string {
 	switch q.Kind() {
@@ -393,50 +443,9 @@ func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[
 			metrics.MetricQueueRecoverTotal.WithLabelValues(q.Name()).Inc()
 
 			if queue, ok := q.queue.(RecoverableQueue[T]); ok {
-				if logger := q.logIfEnabled(); logger != nil {
-					logger.Trace().
-						Str("queue_name", q.Name()).
-						Int("max_retries", DefaultMaxRetries).
-						Msg("Attempting to recover message after panic")
-				}
-
-				var recoverErr error
-				for i := 0; i < DefaultMaxRetries; i++ {
-					recoverErr = queue.Recover(ctx, msg)
-					if recoverErr != nil {
-						backoff := time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond
-						if logger := q.logIfEnabled(); logger != nil {
-							logger.Trace().
-								Err(recoverErr).
-								Str("queue_name", q.Name()).
-								Int("retry_attempt", i+1).
-								Int("max_retries", DefaultMaxRetries).
-								Dur("backoff", backoff).
-								Msg("Recovery attempt failed, retrying with backoff")
-						}
-						time.Sleep(backoff)
-						continue
-					}
-
-					if logger := q.logIfEnabled(); logger != nil {
-						logger.Trace().
-							Str("queue_name", q.Name()).
-							Int("retry_attempt", i+1).
-							Msg("Message recovered successfully after panic")
-					}
-					break
-				}
-
-				if recoverErr != nil {
-					metrics.MetricQueueRecoverErrorTotal.WithLabelValues(q.Name()).Inc()
-					if logger := q.logIfEnabled(); logger != nil {
-						logger.Error().
-							Err(recoverErr).
-							Str("queue_name", q.Name()).
-							Int("max_retries", DefaultMaxRetries).
-							Msg("Failed to recover message after all retry attempts")
-					}
-				}
+				q.retryWithBackoff(ctx, msg, func() error {
+					return queue.Recover(ctx, msg)
+				}, "panic")
 			} else {
 				if logger := q.logIfEnabled(); logger != nil {
 					logger.Warn().
@@ -459,50 +468,9 @@ func (q *SimpleQueue[T]) handle(ctx context.Context, msg Message[T], cb Handler[
 		}
 
 		if q.IsRecoverable() {
-			if logger := q.logIfEnabled(); logger != nil {
-				logger.Trace().
-					Str("queue_name", q.Name()).
-					Int("max_retries", DefaultMaxRetries).
-					Msg("Attempting to recover message after handler error")
-			}
-
-			var recoverErr error
-			for i := 0; i < DefaultMaxRetries; i++ {
-				recoverErr = q.Recover(ctx, msg)
-				if recoverErr != nil {
-					backoff := time.Duration(math.Pow(2, float64(i))) * 10 * time.Millisecond
-					if logger := q.logIfEnabled(); logger != nil {
-						logger.Trace().
-							Err(recoverErr).
-							Str("queue_name", q.Name()).
-							Int("retry_attempt", i+1).
-							Int("max_retries", DefaultMaxRetries).
-							Dur("backoff", backoff).
-							Msg("Recovery attempt failed, retrying with backoff")
-					}
-					time.Sleep(backoff)
-					continue
-				}
-
-				if logger := q.logIfEnabled(); logger != nil {
-					logger.Trace().
-						Str("queue_name", q.Name()).
-						Int("retry_attempt", i+1).
-						Msg("Message recovered successfully after handler error")
-				}
-				break
-			}
-
-			if recoverErr != nil {
-				metrics.MetricQueueRecoverErrorTotal.WithLabelValues(q.Name()).Inc()
-				if logger := q.logIfEnabled(); logger != nil {
-					logger.Error().
-						Err(recoverErr).
-						Str("queue_name", q.Name()).
-						Int("max_retries", DefaultMaxRetries).
-						Msg("Failed to recover message after all retry attempts")
-				}
-			}
+			q.retryWithBackoff(ctx, msg, func() error {
+				return q.Recover(ctx, msg)
+			}, "handler error")
 		} else {
 			if logger := q.logIfEnabled(); logger != nil {
 				logger.Warn().

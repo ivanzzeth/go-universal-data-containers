@@ -3,11 +3,8 @@ package queue
 import (
 	"context"
 	"errors"
-	"sync"
-	"sync/atomic"
 	"time"
 
-	"github.com/ivanzzeth/go-universal-data-containers/metrics"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -55,12 +52,6 @@ func (f *RedisQueueFactory[T]) GetOrCreateSafe(name string, options ...Option) (
 type RedisQueue[T any] struct {
 	*BaseQueue[T]
 	redisClient redis.Cmdable
-
-	// Tracks in-flight messages for graceful shutdown
-	inflightWg sync.WaitGroup
-
-	// Indicates queue is closing, prevents new enqueues
-	closing atomic.Bool
 }
 
 func NewRedisQueue[T any](redisClient redis.Cmdable, name string, defaultMsg Message[T], options ...Option) (*RedisQueue[T], error) {
@@ -98,18 +89,11 @@ func NewRedisQueue[T any](redisClient redis.Cmdable, name string, defaultMsg Mes
 }
 
 func (q *RedisQueue[T]) Close() {
-	// Mark as closing to prevent new enqueues
-	q.closing.Store(true)
-
-	// Wait for all in-flight messages to be processed
-	q.inflightWg.Wait()
-
-	// Now close the exit channel
-	q.BaseQueue.Close()
+	q.BaseQueue.GracefulClose()
 }
 
 func (q *RedisQueue[T]) Enqueue(ctx context.Context, data T) error {
-	if q.closing.Load() {
+	if q.IsClosing() {
 		return ErrQueueClosed
 	}
 
@@ -164,7 +148,7 @@ func (q *RedisQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 	// Non-blocking pop from retry queue
 	data, err := q.redisClient.LPop(ctx, q.GetRetryQueueKey()).Result()
 	if err == nil {
-		return q.unpackMessage([]byte(data))
+		return q.UnpackMessage([]byte(data))
 	}
 	if !errors.Is(err, redis.Nil) {
 		return nil, err
@@ -179,7 +163,7 @@ func (q *RedisQueue[T]) Dequeue(ctx context.Context) (Message[T], error) {
 		return nil, err
 	}
 
-	return q.unpackMessage([]byte(data))
+	return q.UnpackMessage([]byte(data))
 }
 
 func (q *RedisQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
@@ -195,7 +179,7 @@ func (q *RedisQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 		// Use BLPOP with timeout for blocking dequeue
 		// Priority: retry queue first, then main queue
 		// BLPOP returns the first non-empty key, so we put retry queue first
-		result, err := q.redisClient.BLPop(ctx, time.Second, q.GetRetryQueueKey(), q.GetQueueKey()).Result()
+		result, err := q.redisClient.BLPop(ctx, DefaultBlockingTimeout, q.GetRetryQueueKey(), q.GetQueueKey()).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				// Timeout, continue waiting
@@ -205,7 +189,7 @@ func (q *RedisQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 				return nil, ctx.Err()
 			}
 			// Network error or other, retry after short delay
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(DefaultNetworkRetryDelay)
 			continue
 		}
 
@@ -214,22 +198,10 @@ func (q *RedisQueue[T]) BDequeue(ctx context.Context) (Message[T], error) {
 			continue
 		}
 
-		return q.unpackMessage([]byte(result[1]))
+		return q.UnpackMessage([]byte(result[1]))
 	}
 }
 
-func (q *RedisQueue[T]) unpackMessage(packedData []byte) (Message[T], error) {
-	msg, err := q.Unpack(packedData)
-	if err != nil {
-		return nil, err
-	}
-
-	if msg.RetryCount() > q.config.MaxHandleFailures {
-		msg.RefreshRetryCount()
-	}
-
-	return msg, nil
-}
 
 func (q *RedisQueue[T]) Purge(ctx context.Context) error {
 	// Delete both main queue and retry queue
@@ -257,14 +229,14 @@ func (q *RedisQueue[T]) run() {
 			select {
 			case <-q.ExitChannel():
 				return
-			case <-time.After(10 * time.Millisecond):
+			case <-time.After(DefaultCallbackWaitInterval):
 				continue
 			}
 		}
 
 		// Use BLPOP for event-driven message processing
 		// Priority: retry queue first, then main queue
-		result, err := q.redisClient.BLPop(ctx, time.Second, q.GetRetryQueueKey(), q.GetQueueKey()).Result()
+		result, err := q.redisClient.BLPop(ctx, DefaultBlockingTimeout, q.GetRetryQueueKey(), q.GetQueueKey()).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				// Timeout, continue waiting
@@ -277,7 +249,7 @@ func (q *RedisQueue[T]) run() {
 			default:
 			}
 			// Network error or other, retry after short delay
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(DefaultNetworkRetryDelay)
 			continue
 		}
 
@@ -286,31 +258,27 @@ func (q *RedisQueue[T]) run() {
 			continue
 		}
 
-		msg, err := q.unpackMessage([]byte(result[1]))
+		msg, err := q.UnpackMessage([]byte(result[1]))
 		if err != nil {
 			continue
 		}
 
-		q.inflightWg.Add(1)
+		q.AddInflight()
 		q.TriggerCallbacks(ctx, msg)
-		q.inflightWg.Done()
+		q.DoneInflight()
 	}
 }
 
 func (q *RedisQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
-	if msg.RetryCount() >= q.config.MaxHandleFailures {
-		err := q.dlq.Enqueue(ctx, msg.Data())
-		if err != nil {
-			return err
-		}
-
-		// Increment DLQ messages counter
-		metrics.MetricQueueDLQMessagesTotal.WithLabelValues(q.name).Inc()
-
+	sentToDLQ, err := q.ShouldSendToDLQ(ctx, msg)
+	if err != nil {
+		return err
+	}
+	if sentToDLQ {
 		return nil
 	}
 
-	err := q.BaseQueue.ValidateQueueClosed()
+	err = q.BaseQueue.ValidateQueueClosed()
 	if err != nil {
 		return err
 	}
@@ -330,7 +298,7 @@ func (q *RedisQueue[T]) Recover(ctx context.Context, msg Message[T]) error {
 // EnqueueToRetryQueue adds a message directly to the retry queue.
 // Used by DLQ.Redrive to ensure recovered messages are processed with priority.
 func (q *RedisQueue[T]) EnqueueToRetryQueue(ctx context.Context, data T) error {
-	if q.closing.Load() {
+	if q.IsClosing() {
 		return ErrQueueClosed
 	}
 

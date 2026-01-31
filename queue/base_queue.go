@@ -10,6 +10,7 @@ import (
 
 	"github.com/ivanzzeth/go-universal-data-containers/common"
 	"github.com/ivanzzeth/go-universal-data-containers/locker"
+	"github.com/ivanzzeth/go-universal-data-containers/metrics"
 )
 
 var (
@@ -34,6 +35,10 @@ type BaseQueue[T any] struct {
 	exitChannel chan struct{}
 
 	dlq DLQ[T]
+
+	// Graceful shutdown support
+	closing    atomic.Bool
+	inflightWg sync.WaitGroup
 }
 
 func NewBaseQueue[T any](name string, defaultMsg Message[T], options ...Option) (*BaseQueue[T], error) {
@@ -66,6 +71,31 @@ func (q *BaseQueue[T]) Close() {
 	default:
 		close(q.exitChannel)
 	}
+}
+
+// GracefulClose performs a graceful shutdown:
+// 1. Marks as closing to prevent new enqueues
+// 2. Waits for all in-flight messages to be processed
+// 3. Closes the exit channel
+func (q *BaseQueue[T]) GracefulClose() {
+	q.closing.Store(true)
+	q.inflightWg.Wait()
+	q.Close()
+}
+
+// IsClosing returns true if the queue is in the process of closing
+func (q *BaseQueue[T]) IsClosing() bool {
+	return q.closing.Load()
+}
+
+// AddInflight increments the in-flight counter
+func (q *BaseQueue[T]) AddInflight() {
+	q.inflightWg.Add(1)
+}
+
+// DoneInflight decrements the in-flight counter
+func (q *BaseQueue[T]) DoneInflight() {
+	q.inflightWg.Done()
 }
 
 func (q *BaseQueue[T]) IsClosed() bool {
@@ -254,6 +284,24 @@ func (q *BaseQueue[T]) DLQ() (DLQ[T], error) {
 	return q.dlq, nil
 }
 
+// ShouldSendToDLQ checks if the message should be sent to DLQ based on retry count.
+// If yes, it sends the message to DLQ and records the metric.
+// Returns true if the message was sent to DLQ, false otherwise.
+func (q *BaseQueue[T]) ShouldSendToDLQ(ctx context.Context, msg Message[T]) (bool, error) {
+	if msg.RetryCount() >= q.config.MaxHandleFailures {
+		err := q.dlq.Enqueue(ctx, msg.Data())
+		if err != nil {
+			return false, err
+		}
+
+		// Increment DLQ messages counter
+		metrics.MetricQueueDLQMessagesTotal.WithLabelValues(q.name).Inc()
+
+		return true, nil
+	}
+	return false, nil
+}
+
 func (q *BaseQueue[T]) Pack(data T) ([]byte, error) {
 	msg, err := q.NewMessage(data)
 	if err != nil {
@@ -288,6 +336,21 @@ func (q *BaseQueue[T]) Unpack(data []byte) (Message[T], error) {
 	err = msg.Unpack(data)
 	if err != nil {
 		return nil, err
+	}
+
+	return msg, nil
+}
+
+// UnpackMessage unpacks data and resets retry count if needed.
+// This eliminates the duplicate unpackMessage logic from MemoryQueue and RedisQueue.
+func (q *BaseQueue[T]) UnpackMessage(packedData []byte) (Message[T], error) {
+	msg, err := q.Unpack(packedData)
+	if err != nil {
+		return nil, err
+	}
+
+	if msg.RetryCount() > q.config.MaxHandleFailures {
+		msg.RefreshRetryCount()
 	}
 
 	return msg, nil

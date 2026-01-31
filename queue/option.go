@@ -12,6 +12,18 @@ var (
 	DefaultMaxRetries         = 10
 	DefaultUnlimitedCapacity  = 1000000
 	DefaultRetryQueueCapacity = 10000
+
+	// DefaultCallbackWaitInterval is the interval for checking if callbacks are registered.
+	// Used by both MemoryQueue and RedisQueue in their run() loops.
+	DefaultCallbackWaitInterval = 10 * time.Millisecond
+
+	// DefaultBlockingTimeout is the timeout for blocking operations like BLPOP.
+	// Used by RedisQueue for BDequeue and run() loops.
+	DefaultBlockingTimeout = time.Second
+
+	// DefaultNetworkRetryDelay is the delay before retrying after a network error.
+	// Used by RedisQueue when encountering transient errors.
+	DefaultNetworkRetryDelay = 100 * time.Millisecond
 	DefaultOptions            = Config{
 		LockerGenerator: locker.NewMemoryLockerGenerator(),
 
