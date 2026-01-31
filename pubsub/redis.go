@@ -30,7 +30,6 @@ type redisPubSub struct {
 	onFull       OverflowPolicy
 	closed       atomic.Bool
 	metrics      *Metrics
-	bufferPool   *sync.Pool // Pool for reusing byte slices
 
 	mu   sync.RWMutex
 	subs map[string]map[string]*redisSubscription // topic -> subID -> subscription
@@ -94,13 +93,6 @@ func newRedisPubSub(cfg Config) (PubSub, error) {
 		onFull:       cfg.OnFull,
 		metrics:      NewMetrics("redis"),
 		subs:         make(map[string]map[string]*redisSubscription),
-		bufferPool: &sync.Pool{
-			New: func() any {
-				// Pre-allocate 4KB buffer for message serialization
-				buf := make([]byte, 0, 4096)
-				return &buf
-			},
-		},
 	}, nil
 }
 
@@ -312,50 +304,21 @@ func (r *redisPubSub) receiveMessages(ctx context.Context, sub *redisSubscriptio
 			}
 
 			// Send to subscriber channel
-			switch r.onFull {
-			case OverflowDrop:
-				select {
-				case sub.ch <- msg:
-				case <-sub.done:
-					return
-				case <-ctx.Done():
-					return
-				default:
-					// channel full, drop message
-					r.metrics.DroppedTotal.WithLabelValues(sub.topic).Inc()
-				}
-
-			case OverflowBlock:
-				select {
-				case sub.ch <- msg:
-				case <-sub.done:
-					return
-				case <-ctx.Done():
-					return
-				}
+			result := sendWithOverflow(ctx, r.onFull, sub.ch, sub.done, msg, func() {
+				r.metrics.DroppedTotal.WithLabelValues(sub.topic).Inc()
+			})
+			if result.ctxErr != nil || !result.sent {
+				// Context cancelled or subscription closed
+				return
 			}
 		}
 	}
 }
 
 func (r *redisPubSub) SubscribeWithHandler(ctx context.Context, topic string, handler Handler) error {
-	if handler == nil {
-		return ErrNilHandler
-	}
-
-	sub, err := r.Subscribe(ctx, topic)
-	if err != nil {
-		return err
-	}
-
-	for msg := range sub.Messages() {
-		if err := handler(ctx, msg); err != nil {
-			r.metrics.HandlerErrorTotal.WithLabelValues(topic).Inc()
-			// Log error but continue processing
-		}
-	}
-
-	return nil
+	return subscribeWithHandlerImpl(ctx, r, topic, handler, func(t string) {
+		r.metrics.HandlerErrorTotal.WithLabelValues(t).Inc()
+	})
 }
 
 func (r *redisPubSub) removeSubscription(sub *redisSubscription) {

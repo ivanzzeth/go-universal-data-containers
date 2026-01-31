@@ -1,6 +1,7 @@
 package pubsub
 
 import (
+	"errors"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -188,18 +189,29 @@ func NewMetrics(backend string) *Metrics {
 			),
 		}
 
-		// Register all metrics (ignore errors for already registered metrics)
-		prometheus.DefaultRegisterer.Register(m.PublishTotal)
-		prometheus.DefaultRegisterer.Register(m.DeliveredTotal)
-		prometheus.DefaultRegisterer.Register(m.DroppedTotal)
-		prometheus.DefaultRegisterer.Register(m.SubscribeTotal)
-		prometheus.DefaultRegisterer.Register(m.UnsubscribeTotal)
-		prometheus.DefaultRegisterer.Register(m.SubscribersGauge)
-		prometheus.DefaultRegisterer.Register(m.HandlerErrorTotal)
-		prometheus.DefaultRegisterer.Register(m.PublishLatency)
-		prometheus.DefaultRegisterer.Register(m.BatchSize)
-		prometheus.DefaultRegisterer.Register(m.PipelineLatency)
-		prometheus.DefaultRegisterer.Register(m.PipelineErrorTotal)
+		// Register all metrics, allowing already registered (for test re-runs)
+		collectors := []prometheus.Collector{
+			m.PublishTotal,
+			m.DeliveredTotal,
+			m.DroppedTotal,
+			m.SubscribeTotal,
+			m.UnsubscribeTotal,
+			m.SubscribersGauge,
+			m.HandlerErrorTotal,
+			m.PublishLatency,
+			m.BatchSize,
+			m.PipelineLatency,
+			m.PipelineErrorTotal,
+		}
+		for _, c := range collectors {
+			if err := prometheus.DefaultRegisterer.Register(c); err != nil {
+				var alreadyRegistered prometheus.AlreadyRegisteredError
+				if !errors.As(err, &alreadyRegistered) {
+					// Genuine registration error - panic since metrics are critical
+					panic("pubsub: failed to register metric: " + err.Error())
+				}
+			}
+		}
 
 		metricsRegistry[backend] = m
 	})

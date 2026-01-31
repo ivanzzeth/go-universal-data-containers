@@ -94,32 +94,10 @@ func (m *memoryPubSub) Publish(ctx context.Context, topic string, msg message.Me
 			return false, nil
 		}
 
-		switch m.onFull {
-		case OverflowDrop:
-			select {
-			case sub.ch <- msg:
-				return true, nil
-			case <-sub.done:
-				return false, nil
-			case <-ctx.Done():
-				return false, ctx.Err()
-			default:
-				// channel full, drop message
-				m.metrics.DroppedTotal.WithLabelValues(topic).Inc()
-				return true, nil // dropped but ok
-			}
-
-		case OverflowBlock:
-			select {
-			case sub.ch <- msg:
-				return true, nil
-			case <-sub.done:
-				return false, nil
-			case <-ctx.Done():
-				return false, ctx.Err()
-			}
-		}
-		return false, nil
+		result := sendWithOverflow(ctx, m.onFull, sub.ch, sub.done, msg, func() {
+			m.metrics.DroppedTotal.WithLabelValues(topic).Inc()
+		})
+		return result.sent, result.ctxErr
 	}
 
 	// Fan-out: send to all subscribers
@@ -190,23 +168,9 @@ func (m *memoryPubSub) Subscribe(ctx context.Context, topic string) (Subscriptio
 }
 
 func (m *memoryPubSub) SubscribeWithHandler(ctx context.Context, topic string, handler Handler) error {
-	if handler == nil {
-		return ErrNilHandler
-	}
-
-	sub, err := m.Subscribe(ctx, topic)
-	if err != nil {
-		return err
-	}
-
-	for msg := range sub.Messages() {
-		if err := handler(ctx, msg); err != nil {
-			m.metrics.HandlerErrorTotal.WithLabelValues(topic).Inc()
-			// Log error but continue processing
-		}
-	}
-
-	return nil
+	return subscribeWithHandlerImpl(ctx, m, topic, handler, func(t string) {
+		m.metrics.HandlerErrorTotal.WithLabelValues(t).Inc()
+	})
 }
 
 func (m *memoryPubSub) removeSubscription(sub *memorySubscription) {

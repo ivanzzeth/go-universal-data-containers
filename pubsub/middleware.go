@@ -51,10 +51,11 @@ type retryPublisher struct {
 	backoff    time.Duration
 }
 
-func (r *retryPublisher) Publish(ctx context.Context, topic string, msg message.Message[any]) error {
+// retry executes fn with exponential backoff retries.
+func (r *retryPublisher) retry(ctx context.Context, fn func() error) error {
 	var lastErr error
 	for i := 0; i <= r.maxRetries; i++ {
-		if err := r.next.Publish(ctx, topic, msg); err != nil {
+		if err := fn(); err != nil {
 			lastErr = err
 			if i < r.maxRetries {
 				select {
@@ -70,23 +71,16 @@ func (r *retryPublisher) Publish(ctx context.Context, topic string, msg message.
 	return lastErr
 }
 
+func (r *retryPublisher) Publish(ctx context.Context, topic string, msg message.Message[any]) error {
+	return r.retry(ctx, func() error {
+		return r.next.Publish(ctx, topic, msg)
+	})
+}
+
 func (r *retryPublisher) PublishBatch(ctx context.Context, topic string, msgs []message.Message[any]) error {
-	var lastErr error
-	for i := 0; i <= r.maxRetries; i++ {
-		if err := r.next.PublishBatch(ctx, topic, msgs); err != nil {
-			lastErr = err
-			if i < r.maxRetries {
-				select {
-				case <-time.After(r.backoff * time.Duration(i+1)):
-				case <-ctx.Done():
-					return ctx.Err()
-				}
-			}
-			continue
-		}
-		return nil
-	}
-	return lastErr
+	return r.retry(ctx, func() error {
+		return r.next.PublishBatch(ctx, topic, msgs)
+	})
 }
 
 // WithTimeout returns a PublisherMiddleware that adds a timeout to publish operations
