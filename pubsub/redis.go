@@ -127,6 +127,10 @@ func (r *redisPubSub) Publish(ctx context.Context, topic string, msg message.Mes
 	return nil
 }
 
+// pipelineBatchSize is the maximum number of commands per pipeline batch
+// to avoid memory issues and ensure reasonable latency
+const pipelineBatchSize = 1000
+
 func (r *redisPubSub) PublishBatch(ctx context.Context, topic string, msgs []message.Message[any]) error {
 	if r.closed.Load() {
 		return ErrPubSubClosed
@@ -136,30 +140,72 @@ func (r *redisPubSub) PublishBatch(ctx context.Context, topic string, msgs []mes
 		return ErrTopicEmpty
 	}
 
-	// Use pipeline for batch publishing
-	pipe := r.client.Pipeline()
+	if len(msgs) == 0 {
+		return nil
+	}
+
 	channel := r.channelName(topic)
 
+	// Pre-serialize all messages to catch errors early
+	serializedMsgs := make([][]byte, 0, len(msgs))
 	for _, msg := range msgs {
 		if msg == nil {
 			continue
 		}
-
 		data, err := msg.Pack()
 		if err != nil {
 			return fmt.Errorf("pack message: %w", err)
 		}
-
-		pipe.Publish(ctx, channel, data)
-		r.metrics.PublishTotal.WithLabelValues(topic).Inc()
+		serializedMsgs = append(serializedMsgs, data)
 	}
 
+	if len(serializedMsgs) == 0 {
+		return nil
+	}
+
+	// Process in batches to avoid memory issues with large pipelines
+	var totalDelivered int64
+	for i := 0; i < len(serializedMsgs); i += pipelineBatchSize {
+		end := min(i+pipelineBatchSize, len(serializedMsgs))
+		batch := serializedMsgs[i:end]
+
+		delivered, err := r.publishPipelineBatch(ctx, channel, topic, batch)
+		if err != nil {
+			return err
+		}
+		totalDelivered += delivered
+	}
+
+	r.metrics.DeliveredTotal.WithLabelValues(topic).Add(float64(totalDelivered))
+	return nil
+}
+
+// publishPipelineBatch publishes a batch of serialized messages using Redis pipeline
+func (r *redisPubSub) publishPipelineBatch(ctx context.Context, channel, topic string, data [][]byte) (int64, error) {
+	pipe := r.client.Pipeline()
+
+	// Queue all publish commands
+	cmds := make([]*redis.IntCmd, len(data))
+	for i, d := range data {
+		cmds[i] = pipe.Publish(ctx, channel, d)
+	}
+
+	// Execute pipeline
 	_, err := pipe.Exec(ctx)
 	if err != nil {
-		return fmt.Errorf("redis pipeline exec: %w", err)
+		return 0, fmt.Errorf("redis pipeline exec: %w", err)
 	}
 
-	return nil
+	// Collect results and count delivered messages
+	var delivered int64
+	for _, cmd := range cmds {
+		if cmd.Err() == nil {
+			delivered += cmd.Val()
+		}
+	}
+
+	r.metrics.PublishTotal.WithLabelValues(topic).Add(float64(len(data)))
+	return delivered, nil
 }
 
 func (r *redisPubSub) Subscribe(ctx context.Context, topic string) (Subscription, error) {

@@ -765,3 +765,79 @@ func SpecBenchmarkSubscribe(b *testing.B, factory func(b *testing.B) PubSub) {
 		sub.Unsubscribe()
 	}
 }
+
+// SpecBenchmarkPublishBatch benchmarks batch publishing with pipelining
+func SpecBenchmarkPublishBatch(b *testing.B, factory func(b *testing.B) PubSub, batchSize int) {
+	ctx := context.Background()
+
+	ps := factory(b)
+	defer ps.Close()
+
+	sub, _ := ps.Subscribe(ctx, "bench-batch-topic")
+	go func() {
+		for range sub.Messages() {
+		}
+	}()
+
+	// Prepare batch of messages
+	msgs := make([]message.Message[any], batchSize)
+	for i := range batchSize {
+		msgs[i] = newTestMessage(fmt.Sprintf("batch-msg-%d", i), "benchmark data")
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		ps.PublishBatch(ctx, "bench-batch-topic", msgs)
+	}
+}
+
+// SpecBenchmarkPublishBatchVsSequential compares batch vs sequential publishing
+func SpecBenchmarkPublishBatchVsSequential(b *testing.B, factory func(b *testing.B) PubSub, batchSize int) {
+	ctx := context.Background()
+
+	// Prepare messages
+	msgs := make([]message.Message[any], batchSize)
+	for i := range batchSize {
+		msgs[i] = newTestMessage(fmt.Sprintf("msg-%d", i), "benchmark data")
+	}
+
+	b.Run("Sequential", func(b *testing.B) {
+		ps := factory(b)
+		defer ps.Close()
+
+		sub, _ := ps.Subscribe(ctx, "bench-seq-topic")
+		go func() {
+			for range sub.Messages() {
+			}
+		}()
+
+		b.ResetTimer()
+		b.ReportAllocs()
+
+		for i := 0; i < b.N; i++ {
+			for _, msg := range msgs {
+				ps.Publish(ctx, "bench-seq-topic", msg)
+			}
+		}
+	})
+
+	b.Run("Batch", func(b *testing.B) {
+		ps := factory(b)
+		defer ps.Close()
+
+		sub, _ := ps.Subscribe(ctx, "bench-batch-topic")
+		go func() {
+			for range sub.Messages() {
+			}
+		}()
+
+		b.ResetTimer()
+		b.ReportAllocs()
+
+		for i := 0; i < b.N; i++ {
+			ps.PublishBatch(ctx, "bench-batch-topic", msgs)
+		}
+	})
+}

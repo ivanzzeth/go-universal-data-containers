@@ -110,6 +110,22 @@ func BenchmarkRedisPubSub_Publish(b *testing.B) {
 	SpecBenchmarkPublish(b, redisBenchFactory)
 }
 
+func BenchmarkRedisPubSub_PublishBatch10(b *testing.B) {
+	SpecBenchmarkPublishBatch(b, redisBenchFactory, 10)
+}
+
+func BenchmarkRedisPubSub_PublishBatch100(b *testing.B) {
+	SpecBenchmarkPublishBatch(b, redisBenchFactory, 100)
+}
+
+func BenchmarkRedisPubSub_PublishBatch1000(b *testing.B) {
+	SpecBenchmarkPublishBatch(b, redisBenchFactory, 1000)
+}
+
+func BenchmarkRedisPubSub_BatchVsSequential100(b *testing.B) {
+	SpecBenchmarkPublishBatchVsSequential(b, redisBenchFactory, 100)
+}
+
 // ==================== Additional Redis-Specific Tests ====================
 
 func TestRedisOptions_ToMap(t *testing.T) {
