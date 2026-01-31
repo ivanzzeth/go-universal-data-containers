@@ -31,6 +31,15 @@ type Metrics struct {
 
 	// PublishLatency tracks publish operation latency per topic
 	PublishLatency *prometheus.HistogramVec
+
+	// BatchSize tracks batch sizes for PublishBatch operations
+	BatchSize *prometheus.HistogramVec
+
+	// PipelineLatency tracks pipeline execution latency
+	PipelineLatency *prometheus.HistogramVec
+
+	// PipelineErrorTotal counts pipeline execution errors
+	PipelineErrorTotal *prometheus.CounterVec
 }
 
 var (
@@ -142,6 +151,41 @@ func NewMetrics(backend string) *Metrics {
 				},
 				labels,
 			),
+
+			BatchSize: prometheus.NewHistogramVec(
+				prometheus.HistogramOpts{
+					Namespace:   "pubsub",
+					Subsystem:   backend,
+					Name:        "batch_size",
+					Help:        "Batch size for PublishBatch operations",
+					Buckets:     []float64{1, 10, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+					ConstLabels: prometheus.Labels{"backend": backend},
+				},
+				labels,
+			),
+
+			PipelineLatency: prometheus.NewHistogramVec(
+				prometheus.HistogramOpts{
+					Namespace:   "pubsub",
+					Subsystem:   backend,
+					Name:        "pipeline_latency_seconds",
+					Help:        "Pipeline execution latency in seconds",
+					Buckets:     []float64{.0001, .0005, .001, .005, .01, .025, .05, .1, .25, .5, 1},
+					ConstLabels: prometheus.Labels{"backend": backend},
+				},
+				labels,
+			),
+
+			PipelineErrorTotal: prometheus.NewCounterVec(
+				prometheus.CounterOpts{
+					Namespace:   "pubsub",
+					Subsystem:   backend,
+					Name:        "pipeline_error_total",
+					Help:        "Total number of pipeline execution errors",
+					ConstLabels: prometheus.Labels{"backend": backend},
+				},
+				labels,
+			),
 		}
 
 		// Register all metrics (ignore errors for already registered metrics)
@@ -153,6 +197,9 @@ func NewMetrics(backend string) *Metrics {
 		prometheus.DefaultRegisterer.Register(m.SubscribersGauge)
 		prometheus.DefaultRegisterer.Register(m.HandlerErrorTotal)
 		prometheus.DefaultRegisterer.Register(m.PublishLatency)
+		prometheus.DefaultRegisterer.Register(m.BatchSize)
+		prometheus.DefaultRegisterer.Register(m.PipelineLatency)
+		prometheus.DefaultRegisterer.Register(m.PipelineErrorTotal)
 
 		metricsRegistry[backend] = m
 	})

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/ivanzzeth/go-universal-data-containers/message"
@@ -22,12 +23,14 @@ type RedisClient interface {
 
 // redisPubSub implements PubSub using Redis Pub/Sub
 type redisPubSub struct {
-	client     RedisClient
-	prefix     string
-	bufferSize int
-	onFull     OverflowPolicy
-	closed     atomic.Bool
-	metrics    *Metrics
+	client       RedisClient
+	prefix       string
+	bufferSize   int
+	batchSizeMax int
+	onFull       OverflowPolicy
+	closed       atomic.Bool
+	metrics      *Metrics
+	bufferPool   *sync.Pool // Pool for reusing byte slices
 
 	mu   sync.RWMutex
 	subs map[string]map[string]*redisSubscription // topic -> subID -> subscription
@@ -78,13 +81,26 @@ func newRedisPubSub(cfg Config) (PubSub, error) {
 		bufSize = 100
 	}
 
+	batchSizeMax := cfg.BatchSizeMax
+	if batchSizeMax <= 0 {
+		batchSizeMax = DefaultBatchSizeMax
+	}
+
 	return &redisPubSub{
-		client:     client,
-		prefix:     opts.Prefix,
-		bufferSize: bufSize,
-		onFull:     cfg.OnFull,
-		metrics:    NewMetrics("redis"),
-		subs:       make(map[string]map[string]*redisSubscription),
+		client:       client,
+		prefix:       opts.Prefix,
+		bufferSize:   bufSize,
+		batchSizeMax: batchSizeMax,
+		onFull:       cfg.OnFull,
+		metrics:      NewMetrics("redis"),
+		subs:         make(map[string]map[string]*redisSubscription),
+		bufferPool: &sync.Pool{
+			New: func() any {
+				// Pre-allocate 4KB buffer for message serialization
+				buf := make([]byte, 0, 4096)
+				return &buf
+			},
+		},
 	}, nil
 }
 
@@ -127,10 +143,6 @@ func (r *redisPubSub) Publish(ctx context.Context, topic string, msg message.Mes
 	return nil
 }
 
-// pipelineBatchSize is the maximum number of commands per pipeline batch
-// to avoid memory issues and ensure reasonable latency
-const pipelineBatchSize = 1000
-
 func (r *redisPubSub) PublishBatch(ctx context.Context, topic string, msgs []message.Message[any]) error {
 	if r.closed.Load() {
 		return ErrPubSubClosed
@@ -163,10 +175,11 @@ func (r *redisPubSub) PublishBatch(ctx context.Context, topic string, msgs []mes
 		return nil
 	}
 
-	// Process in batches to avoid memory issues with large pipelines
+	// Process in batches using configurable batch size
+	batchSize := r.batchSizeMax
 	var totalDelivered int64
-	for i := 0; i < len(serializedMsgs); i += pipelineBatchSize {
-		end := min(i+pipelineBatchSize, len(serializedMsgs))
+	for i := 0; i < len(serializedMsgs); i += batchSize {
+		end := min(i+batchSize, len(serializedMsgs))
 		batch := serializedMsgs[i:end]
 
 		delivered, err := r.publishPipelineBatch(ctx, channel, topic, batch)
@@ -182,6 +195,9 @@ func (r *redisPubSub) PublishBatch(ctx context.Context, topic string, msgs []mes
 
 // publishPipelineBatch publishes a batch of serialized messages using Redis pipeline
 func (r *redisPubSub) publishPipelineBatch(ctx context.Context, channel, topic string, data [][]byte) (int64, error) {
+	// Record batch size
+	r.metrics.BatchSize.WithLabelValues(topic).Observe(float64(len(data)))
+
 	pipe := r.client.Pipeline()
 
 	// Queue all publish commands
@@ -190,9 +206,14 @@ func (r *redisPubSub) publishPipelineBatch(ctx context.Context, channel, topic s
 		cmds[i] = pipe.Publish(ctx, channel, d)
 	}
 
-	// Execute pipeline
+	// Execute pipeline with timing
+	start := time.Now()
 	_, err := pipe.Exec(ctx)
+	elapsed := time.Since(start)
+	r.metrics.PipelineLatency.WithLabelValues(topic).Observe(elapsed.Seconds())
+
 	if err != nil {
+		r.metrics.PipelineErrorTotal.WithLabelValues(topic).Inc()
 		return 0, fmt.Errorf("redis pipeline exec: %w", err)
 	}
 

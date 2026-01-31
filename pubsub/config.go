@@ -24,9 +24,18 @@ type Config struct {
 	// OnFull specifies behavior when subscriber buffer is full
 	OnFull OverflowPolicy
 
+	// BatchSizeMax is the maximum number of messages per pipeline batch (default: 1000)
+	// Only applicable to backends that support pipelining (e.g., Redis)
+	BatchSizeMax int
+
 	// Options contains backend-specific configuration
 	Options map[string]any
 }
+
+const (
+	// DefaultBatchSizeMax is the default maximum batch size for pipelining
+	DefaultBatchSizeMax = 1000
+)
 
 // OverflowPolicy defines behavior when subscriber buffer is full
 type OverflowPolicy int
@@ -42,10 +51,11 @@ const (
 // DefaultConfig returns a Config with sensible defaults
 func DefaultConfig() Config {
 	return Config{
-		Backend:    BackendMemory,
-		BufferSize: 100,
-		OnFull:     OverflowDrop,
-		Options:    make(map[string]any),
+		Backend:      BackendMemory,
+		BufferSize:   100,
+		OnFull:       OverflowDrop,
+		BatchSizeMax: DefaultBatchSizeMax,
+		Options:      make(map[string]any),
 	}
 }
 
