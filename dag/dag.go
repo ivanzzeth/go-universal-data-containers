@@ -3,6 +3,8 @@ package dag
 import (
 	"context"
 	"errors"
+
+	"github.com/rs/zerolog"
 )
 
 var (
@@ -97,6 +99,10 @@ type Options struct {
 	// PollInterval is the interval for polling vertices with in-degree 0.
 	// Default is 100ms.
 	PollInterval int
+
+	// Logger is the optional logger for DAG operations.
+	// If nil, logging is disabled.
+	Logger *zerolog.Logger
 }
 
 // DefaultOptions returns default options.
@@ -118,5 +124,12 @@ func WithBufferSize(size int) Option {
 func WithPollInterval(ms int) Option {
 	return func(o *Options) {
 		o.PollInterval = ms
+	}
+}
+
+// WithDAGLogger sets the logger for DAG operations.
+func WithDAGLogger(logger *zerolog.Logger) Option {
+	return func(o *Options) {
+		o.Logger = logger
 	}
 }

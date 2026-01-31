@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
+	"github.com/ivanzzeth/go-universal-data-containers/locker"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -18,6 +20,192 @@ const (
 	keyPrefixProcessed = "dag:processed:" // Set: processed vertices (to avoid re-processing)
 )
 
+// Lua scripts for atomic operations
+var (
+	// luaAddEdge atomically adds an edge with cycle detection
+	luaAddEdge = redis.NewScript(`
+		local graphKey = KEYS[1]
+		local inDegreeKey = KEYS[2]
+		local fromKey = ARGV[1]
+		local toKey = ARGV[2]
+
+		-- Ensure both vertices exist
+		if redis.call('HEXISTS', graphKey, fromKey) == 0 then
+			redis.call('HSET', graphKey, fromKey, '[]')
+			redis.call('HSETNX', inDegreeKey, fromKey, 0)
+		end
+		if redis.call('HEXISTS', graphKey, toKey) == 0 then
+			redis.call('HSET', graphKey, toKey, '[]')
+			redis.call('HSETNX', inDegreeKey, toKey, 0)
+		end
+
+		-- Get current successors of 'from'
+		local successorsJson = redis.call('HGET', graphKey, fromKey)
+		local successors = cjson.decode(successorsJson)
+
+		-- Check if edge already exists
+		for _, s in ipairs(successors) do
+			if s == toKey then
+				return 0 -- Edge already exists
+			end
+		end
+
+		-- Simple cycle check: BFS from 'to' to see if we can reach 'from'
+		local visited = {}
+		local queue = {toKey}
+		while #queue > 0 do
+			local current = table.remove(queue, 1)
+			if current == fromKey then
+				return -1 -- Cycle detected
+			end
+			if not visited[current] then
+				visited[current] = true
+				local currentSuccessorsJson = redis.call('HGET', graphKey, current)
+				if currentSuccessorsJson then
+					local currentSuccessors = cjson.decode(currentSuccessorsJson)
+					for _, s in ipairs(currentSuccessors) do
+						if not visited[s] then
+							table.insert(queue, s)
+						end
+					end
+				end
+			end
+		end
+
+		-- Add edge
+		table.insert(successors, toKey)
+		redis.call('HSET', graphKey, fromKey, cjson.encode(successors))
+		redis.call('HINCRBY', inDegreeKey, toKey, 1)
+
+		return 1 -- Success
+	`)
+
+	// luaDelVertex atomically removes a vertex and all its edges
+	luaDelVertex = redis.NewScript(`
+		local graphKey = KEYS[1]
+		local inDegreeKey = KEYS[2]
+		local queueKey = KEYS[3]
+		local vertexKey = ARGV[1]
+
+		-- Get successors and decrement their in-degree
+		local successorsJson = redis.call('HGET', graphKey, vertexKey)
+		if successorsJson then
+			local successors = cjson.decode(successorsJson)
+			for _, s in ipairs(successors) do
+				redis.call('HINCRBY', inDegreeKey, s, -1)
+			end
+		end
+
+		-- Remove vertex from all predecessor lists
+		local allVertices = redis.call('HKEYS', graphKey)
+		for _, v in ipairs(allVertices) do
+			if v ~= vertexKey then
+				local vSuccessorsJson = redis.call('HGET', graphKey, v)
+				if vSuccessorsJson then
+					local vSuccessors = cjson.decode(vSuccessorsJson)
+					local newSuccessors = {}
+					for _, s in ipairs(vSuccessors) do
+						if s ~= vertexKey then
+							table.insert(newSuccessors, s)
+						end
+					end
+					if #newSuccessors ~= #vSuccessors then
+						redis.call('HSET', graphKey, v, cjson.encode(newSuccessors))
+					end
+				end
+			end
+		end
+
+		-- Remove vertex
+		redis.call('HDEL', graphKey, vertexKey)
+		redis.call('HDEL', inDegreeKey, vertexKey)
+		redis.call('LREM', queueKey, 0, vertexKey)
+
+		return 1
+	`)
+
+	// luaDelEdge atomically removes an edge
+	luaDelEdge = redis.NewScript(`
+		local graphKey = KEYS[1]
+		local inDegreeKey = KEYS[2]
+		local fromKey = ARGV[1]
+		local toKey = ARGV[2]
+
+		-- Check if 'from' vertex exists
+		local successorsJson = redis.call('HGET', graphKey, fromKey)
+		if not successorsJson then
+			return -1 -- Edge not found
+		end
+
+		local successors = cjson.decode(successorsJson)
+		local newSuccessors = {}
+		local found = false
+
+		for _, s in ipairs(successors) do
+			if s == toKey then
+				found = true
+			else
+				table.insert(newSuccessors, s)
+			end
+		end
+
+		if not found then
+			return -1 -- Edge not found
+		end
+
+		redis.call('HSET', graphKey, fromKey, cjson.encode(newSuccessors))
+		redis.call('HINCRBY', inDegreeKey, toKey, -1)
+
+		return 1
+	`)
+
+	// luaPollReadyVertices finds vertices with in-degree 0 that are ready to process
+	luaPollReadyVertices = redis.NewScript(`
+		local graphKey = KEYS[1]
+		local inDegreeKey = KEYS[2]
+		local queueKey = KEYS[3]
+		local processedKey = KEYS[4]
+
+		local vertices = redis.call('HKEYS', graphKey)
+		local added = 0
+
+		for _, v in ipairs(vertices) do
+			local inDegree = tonumber(redis.call('HGET', inDegreeKey, v) or 0)
+			local inQueue = redis.call('LPOS', queueKey, v)
+			local processed = redis.call('SISMEMBER', processedKey, v)
+
+			if inDegree == 0 and not inQueue and processed == 0 then
+				redis.call('RPUSH', queueKey, v)
+				added = added + 1
+			end
+		end
+
+		return added
+	`)
+
+	// luaProcessVertex updates successors' in-degree and removes the vertex
+	luaProcessVertex = redis.NewScript(`
+		local graphKey = KEYS[1]
+		local inDegreeKey = KEYS[2]
+		local vertexKey = ARGV[1]
+
+		-- Get successors and decrement their in-degree
+		local successorsJson = redis.call('HGET', graphKey, vertexKey)
+		if successorsJson then
+			local successors = cjson.decode(successorsJson)
+			for _, s in ipairs(successors) do
+				redis.call('HINCRBY', inDegreeKey, s, -1)
+			end
+		end
+
+		-- Remove vertex from graph
+		redis.call('HDEL', graphKey, vertexKey)
+		redis.call('HDEL', inDegreeKey, vertexKey)
+
+		return 1
+	`)
+)
+
 var _ DAG[string] = (*RedisDAG[string])(nil)
 
 // RedisDAG is a Redis-backed implementation of DAG.
@@ -27,14 +215,18 @@ type RedisDAG[T comparable] struct {
 	opts   *Options
 	client redis.Cmdable
 
-	mu       sync.Mutex
-	closed   bool
-	closeCh  chan struct{}
-	pipeline chan T
+	mu              sync.Mutex
+	closed          bool
+	closeCh         chan struct{}
+	pipeline        chan T
+	pipelineRunning bool
 
 	// Serialization functions
 	marshal   func(T) (string, error)
 	unmarshal func(string) (T, error)
+
+	// Distributed locking for batch operations
+	lockerGenerator locker.SyncLockerGenerator
 }
 
 // RedisDAGConfig configures RedisDAG behavior.
@@ -163,64 +355,7 @@ func (d *RedisDAG[T]) AddEdge(ctx context.Context, from, to T) error {
 	}
 
 	// Check for cycle using Lua script for atomicity
-	script := redis.NewScript(`
-		local graphKey = KEYS[1]
-		local inDegreeKey = KEYS[2]
-		local fromKey = ARGV[1]
-		local toKey = ARGV[2]
-
-		-- Ensure both vertices exist
-		if redis.call('HEXISTS', graphKey, fromKey) == 0 then
-			redis.call('HSET', graphKey, fromKey, '[]')
-			redis.call('HSETNX', inDegreeKey, fromKey, 0)
-		end
-		if redis.call('HEXISTS', graphKey, toKey) == 0 then
-			redis.call('HSET', graphKey, toKey, '[]')
-			redis.call('HSETNX', inDegreeKey, toKey, 0)
-		end
-
-		-- Get current successors of 'from'
-		local successorsJson = redis.call('HGET', graphKey, fromKey)
-		local successors = cjson.decode(successorsJson)
-
-		-- Check if edge already exists
-		for _, s in ipairs(successors) do
-			if s == toKey then
-				return 0 -- Edge already exists
-			end
-		end
-
-		-- Simple cycle check: BFS from 'to' to see if we can reach 'from'
-		local visited = {}
-		local queue = {toKey}
-		while #queue > 0 do
-			local current = table.remove(queue, 1)
-			if current == fromKey then
-				return -1 -- Cycle detected
-			end
-			if not visited[current] then
-				visited[current] = true
-				local currentSuccessorsJson = redis.call('HGET', graphKey, current)
-				if currentSuccessorsJson then
-					local currentSuccessors = cjson.decode(currentSuccessorsJson)
-					for _, s in ipairs(currentSuccessors) do
-						if not visited[s] then
-							table.insert(queue, s)
-						end
-					end
-				end
-			end
-		end
-
-		-- Add edge
-		table.insert(successors, toKey)
-		redis.call('HSET', graphKey, fromKey, cjson.encode(successors))
-		redis.call('HINCRBY', inDegreeKey, toKey, 1)
-
-		return 1 -- Success
-	`)
-
-	result, err := script.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey()}, fromKey, toKey).Int()
+	result, err := luaAddEdge.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey()}, fromKey, toKey).Int()
 	if err != nil {
 		return err
 	}
@@ -255,50 +390,7 @@ func (d *RedisDAG[T]) DelVertex(ctx context.Context, vertex T) error {
 	}
 
 	// Use Lua script to atomically remove vertex and update all references
-	script := redis.NewScript(`
-		local graphKey = KEYS[1]
-		local inDegreeKey = KEYS[2]
-		local queueKey = KEYS[3]
-		local vertexKey = ARGV[1]
-
-		-- Get successors and decrement their in-degree
-		local successorsJson = redis.call('HGET', graphKey, vertexKey)
-		if successorsJson then
-			local successors = cjson.decode(successorsJson)
-			for _, s in ipairs(successors) do
-				redis.call('HINCRBY', inDegreeKey, s, -1)
-			end
-		end
-
-		-- Remove vertex from all predecessor lists
-		local allVertices = redis.call('HKEYS', graphKey)
-		for _, v in ipairs(allVertices) do
-			if v ~= vertexKey then
-				local vSuccessorsJson = redis.call('HGET', graphKey, v)
-				if vSuccessorsJson then
-					local vSuccessors = cjson.decode(vSuccessorsJson)
-					local newSuccessors = {}
-					for _, s in ipairs(vSuccessors) do
-						if s ~= vertexKey then
-							table.insert(newSuccessors, s)
-						end
-					end
-					if #newSuccessors ~= #vSuccessors then
-						redis.call('HSET', graphKey, v, cjson.encode(newSuccessors))
-					end
-				end
-			end
-		end
-
-		-- Remove vertex
-		redis.call('HDEL', graphKey, vertexKey)
-		redis.call('HDEL', inDegreeKey, vertexKey)
-		redis.call('LREM', queueKey, 0, vertexKey)
-
-		return 1
-	`)
-
-	_, err = script.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey(), d.queueKey()}, key).Result()
+	_, err = luaDelVertex.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey(), d.queueKey()}, key).Result()
 	return err
 }
 
@@ -319,41 +411,7 @@ func (d *RedisDAG[T]) DelEdge(ctx context.Context, from, to T) error {
 		return err
 	}
 
-	script := redis.NewScript(`
-		local graphKey = KEYS[1]
-		local inDegreeKey = KEYS[2]
-		local fromKey = ARGV[1]
-		local toKey = ARGV[2]
-
-		-- Check if 'from' vertex exists
-		local successorsJson = redis.call('HGET', graphKey, fromKey)
-		if not successorsJson then
-			return -1 -- Edge not found
-		end
-
-		local successors = cjson.decode(successorsJson)
-		local newSuccessors = {}
-		local found = false
-
-		for _, s in ipairs(successors) do
-			if s == toKey then
-				found = true
-			else
-				table.insert(newSuccessors, s)
-			end
-		end
-
-		if not found then
-			return -1 -- Edge not found
-		end
-
-		redis.call('HSET', graphKey, fromKey, cjson.encode(newSuccessors))
-		redis.call('HINCRBY', inDegreeKey, toKey, -1)
-
-		return 1
-	`)
-
-	result, err := script.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey()}, fromKey, toKey).Int()
+	result, err := luaDelEdge.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey()}, fromKey, toKey).Int()
 	if err != nil {
 		return err
 	}
@@ -411,13 +469,7 @@ func (d *RedisDAG[T]) HasEdge(ctx context.Context, from, to T) (bool, error) {
 		return false, err
 	}
 
-	for _, s := range successors {
-		if s == toKey {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return slices.Contains(successors, toKey), nil
 }
 
 func (d *RedisDAG[T]) InDegree(ctx context.Context, vertex T) (int, error) {
@@ -511,7 +563,7 @@ func (d *RedisDAG[T]) EdgeCount(ctx context.Context) (int, error) {
 	for _, successorsJson := range allSuccessors {
 		var successors []string
 		if err := json.Unmarshal([]byte(successorsJson), &successors); err != nil {
-			continue
+			return 0, fmt.Errorf("failed to unmarshal successors: %w", err)
 		}
 		count += len(successors)
 	}
@@ -536,7 +588,7 @@ func (d *RedisDAG[T]) Vertices(ctx context.Context) ([]T, error) {
 	for _, k := range keys {
 		v, err := d.unmarshal(k)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("failed to unmarshal vertex %q: %w", k, err)
 		}
 		vertices = append(vertices, v)
 	}
@@ -574,7 +626,7 @@ func (d *RedisDAG[T]) Successors(ctx context.Context, vertex T) ([]T, error) {
 	for _, k := range successorKeys {
 		v, err := d.unmarshal(k)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("failed to unmarshal successor %q: %w", k, err)
 		}
 		successors = append(successors, v)
 	}
@@ -614,18 +666,15 @@ func (d *RedisDAG[T]) Predecessors(ctx context.Context, vertex T) ([]T, error) {
 	for vKey, successorsJson := range allData {
 		var successorKeys []string
 		if err := json.Unmarshal([]byte(successorsJson), &successorKeys); err != nil {
-			continue
+			return nil, fmt.Errorf("failed to unmarshal successors for vertex %q: %w", vKey, err)
 		}
 
-		for _, s := range successorKeys {
-			if s == key {
-				v, err := d.unmarshal(vKey)
-				if err != nil {
-					continue
-				}
-				predecessors = append(predecessors, v)
-				break
+		if slices.Contains(successorKeys, key) {
+			v, err := d.unmarshal(vKey)
+			if err != nil {
+				return nil, fmt.Errorf("failed to unmarshal predecessor %q: %w", vKey, err)
 			}
+			predecessors = append(predecessors, v)
 		}
 	}
 
@@ -640,14 +689,21 @@ func (d *RedisDAG[T]) Pipeline(ctx context.Context) (<-chan T, error) {
 		return nil, ErrDAGClosed
 	}
 
-	if d.pipeline != nil {
+	// If pipeline is already running, return existing channel
+	if d.pipelineRunning && d.pipeline != nil {
 		return d.pipeline, nil
 	}
 
+	// Reset pipeline state for new run
+	d.closeCh = make(chan struct{})
 	d.pipeline = make(chan T, d.opts.BufferSize)
+	d.pipelineRunning = true
 
 	// Clear processed set for fresh start
-	d.client.Del(ctx, d.processedKey())
+	if err := d.client.Del(ctx, d.processedKey()).Err(); err != nil {
+		d.pipelineRunning = false
+		return nil, fmt.Errorf("failed to clear processed set: %w", err)
+	}
 
 	// Goroutine to find vertices with in-degree 0 and add to queue
 	go d.pollReadyVertices(ctx)
@@ -670,36 +726,24 @@ func (d *RedisDAG[T]) pollReadyVertices(ctx context.Context) {
 			return
 		case <-ticker.C:
 			// Find vertices with in-degree 0 that haven't been processed
-			script := redis.NewScript(`
-				local graphKey = KEYS[1]
-				local inDegreeKey = KEYS[2]
-				local queueKey = KEYS[3]
-				local processedKey = KEYS[4]
-
-				local vertices = redis.call('HKEYS', graphKey)
-				local added = 0
-
-				for _, v in ipairs(vertices) do
-					local inDegree = tonumber(redis.call('HGET', inDegreeKey, v) or 0)
-					local inQueue = redis.call('LPOS', queueKey, v)
-					local processed = redis.call('SISMEMBER', processedKey, v)
-
-					if inDegree == 0 and not inQueue and processed == 0 then
-						redis.call('RPUSH', queueKey, v)
-						added = added + 1
-					end
-				end
-
-				return added
-			`)
-
-			script.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey(), d.queueKey(), d.processedKey()})
+			_, err := luaPollReadyVertices.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey(), d.queueKey(), d.processedKey()}).Result()
+			if err != nil && err != redis.Nil {
+				if d.opts.Logger != nil {
+					d.opts.Logger.Warn().Err(err).Str("dag", d.name).Msg("failed to poll ready vertices")
+				}
+				continue
+			}
 		}
 	}
 }
 
 func (d *RedisDAG[T]) processQueue(ctx context.Context) {
-	defer close(d.pipeline)
+	defer func() {
+		close(d.pipeline)
+		d.mu.Lock()
+		d.pipelineRunning = false
+		d.mu.Unlock()
+	}()
 
 	for {
 		select {
@@ -733,31 +777,20 @@ func (d *RedisDAG[T]) processQueue(ctx context.Context) {
 			vertexKey := result[1]
 
 			// Mark as processed
-			d.client.SAdd(ctx, d.processedKey(), vertexKey)
+			if err := d.client.SAdd(ctx, d.processedKey(), vertexKey).Err(); err != nil {
+				if d.opts.Logger != nil {
+					d.opts.Logger.Warn().Err(err).Str("dag", d.name).Str("vertex", vertexKey).Msg("failed to mark vertex as processed")
+				}
+				continue
+			}
 
 			// Update successors' in-degree and remove vertex
-			script := redis.NewScript(`
-				local graphKey = KEYS[1]
-				local inDegreeKey = KEYS[2]
-				local vertexKey = ARGV[1]
-
-				-- Get successors and decrement their in-degree
-				local successorsJson = redis.call('HGET', graphKey, vertexKey)
-				if successorsJson then
-					local successors = cjson.decode(successorsJson)
-					for _, s in ipairs(successors) do
-						redis.call('HINCRBY', inDegreeKey, s, -1)
-					end
-				end
-
-				-- Remove vertex from graph
-				redis.call('HDEL', graphKey, vertexKey)
-				redis.call('HDEL', inDegreeKey, vertexKey)
-
-				return 1
-			`)
-
-			script.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey()}, vertexKey)
+			if _, err := luaProcessVertex.Run(ctx, d.client, []string{d.graphKey(), d.inDegreeKey()}, vertexKey).Result(); err != nil && err != redis.Nil {
+				if d.opts.Logger != nil {
+					d.opts.Logger.Warn().Err(err).Str("dag", d.name).Str("vertex", vertexKey).Msg("failed to process vertex")
+				}
+				continue
+			}
 
 			// Emit vertex
 			vertex, err := d.unmarshal(vertexKey)
@@ -828,4 +861,35 @@ func (f *RedisDAGFactory[T]) Create(ctx context.Context, name string, opts ...Op
 	f.dags[name] = dag
 
 	return dag, nil
+}
+
+// Remove removes a DAG from the factory and closes it.
+func (f *RedisDAGFactory[T]) Remove(ctx context.Context, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	dag, exists := f.dags[name]
+	if !exists {
+		return nil
+	}
+
+	delete(f.dags, name)
+	if err := dag.Cleanup(ctx); err != nil {
+		return err
+	}
+	return dag.Close()
+}
+
+// Close closes all DAGs managed by the factory.
+func (f *RedisDAGFactory[T]) Close(ctx context.Context) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for name, dag := range f.dags {
+		dag.Cleanup(ctx)
+		dag.Close()
+		delete(f.dags, name)
+	}
+
+	return nil
 }

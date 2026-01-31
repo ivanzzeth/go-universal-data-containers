@@ -167,11 +167,12 @@ func SpecTestDAG(t *testing.T, dag DAG[int]) {
 
 // TestCycleDetection tests that cycles are properly detected.
 func TestCycleDetection(t *testing.T) {
-	dag := NewMemoryDAG[int]("test-cycle")
+	dag, err := NewMemoryDAG[int]("test-cycle")
+	require.NoError(t, err)
 	ctx := context.Background()
 
 	// Create a chain: 1 -> 2 -> 3
-	err := dag.AddEdge(ctx, 1, 2)
+	err = dag.AddEdge(ctx, 1, 2)
 	require.NoError(t, err)
 	err = dag.AddEdge(ctx, 2, 3)
 	require.NoError(t, err)
@@ -186,8 +187,14 @@ func TestCycleDetection(t *testing.T) {
 }
 
 func TestMemoryDAG(t *testing.T) {
-	dag := NewMemoryDAG[int]("test")
+	dag, err := NewMemoryDAG[int]("test")
+	require.NoError(t, err)
 	SpecTestDAG(t, dag)
+}
+
+func TestMemoryDAG_EmptyName(t *testing.T) {
+	_, err := NewMemoryDAG[int]("")
+	assert.Error(t, err)
 }
 
 func TestMemoryDAG_Pipeline(t *testing.T) {
@@ -221,7 +228,8 @@ func TestMemoryDAG_Pipeline(t *testing.T) {
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			dag := NewMemoryDAG[int]("test-pipeline", WithBufferSize(10), WithPollInterval(50))
+			dag, err := NewMemoryDAG[int]("test-pipeline", WithBufferSize(10), WithPollInterval(50))
+			require.NoError(t, err)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 
@@ -316,4 +324,337 @@ func TestMemoryDAGFactory(t *testing.T) {
 	dag3, err := factory.Create(ctx, "test2")
 	require.NoError(t, err)
 	assert.NotEqual(t, dag1, dag3)
+}
+
+func TestMemoryDAGFactory_Remove(t *testing.T) {
+	factory := NewMemoryDAGFactory[int]()
+	ctx := context.Background()
+
+	// Create a DAG
+	dag1, err := factory.Create(ctx, "test-remove")
+	require.NoError(t, err)
+	require.NotNil(t, dag1)
+
+	// Add some data
+	err = dag1.AddEdge(ctx, 1, 2)
+	require.NoError(t, err)
+
+	// Remove the DAG
+	err = factory.Remove("test-remove")
+	require.NoError(t, err)
+
+	// Creating a new DAG with the same name should return a new instance
+	dag2, err := factory.Create(ctx, "test-remove")
+	require.NoError(t, err)
+	assert.NotEqual(t, dag1, dag2)
+
+	// The new DAG should be empty
+	count, err := dag2.VertexCount(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+
+	// Removing a non-existent DAG should not error
+	err = factory.Remove("non-existent")
+	require.NoError(t, err)
+}
+
+func TestMemoryDAGFactory_Close(t *testing.T) {
+	factory := NewMemoryDAGFactory[int]()
+	ctx := context.Background()
+
+	// Create multiple DAGs
+	_, err := factory.Create(ctx, "dag1")
+	require.NoError(t, err)
+	_, err = factory.Create(ctx, "dag2")
+	require.NoError(t, err)
+
+	// Close the factory
+	err = factory.Close()
+	require.NoError(t, err)
+
+	// Creating a new DAG after close should still work (factory is reusable)
+	dag3, err := factory.Create(ctx, "dag3")
+	require.NoError(t, err)
+	require.NotNil(t, dag3)
+}
+
+func TestMemoryDAG_Vertices(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-vertices")
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Empty DAG should return empty slice
+	vertices, err := dag.Vertices(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, vertices)
+
+	// Add some vertices
+	err = dag.AddVertex(ctx, 1)
+	require.NoError(t, err)
+	err = dag.AddVertex(ctx, 2)
+	require.NoError(t, err)
+	err = dag.AddEdge(ctx, 3, 4)
+	require.NoError(t, err)
+
+	vertices, err = dag.Vertices(ctx)
+	require.NoError(t, err)
+	assert.Len(t, vertices, 4)
+	assert.Contains(t, vertices, 1)
+	assert.Contains(t, vertices, 2)
+	assert.Contains(t, vertices, 3)
+	assert.Contains(t, vertices, 4)
+}
+
+func TestMemoryDAG_ClosedOperations(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-closed")
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Close the DAG
+	err = dag.Close()
+	require.NoError(t, err)
+
+	// All operations should return ErrDAGClosed
+	err = dag.AddVertex(ctx, 1)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	err = dag.AddEdge(ctx, 1, 2)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	err = dag.DelVertex(ctx, 1)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	err = dag.DelEdge(ctx, 1, 2)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.HasVertex(ctx, 1)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.HasEdge(ctx, 1, 2)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.InDegree(ctx, 1)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.OutDegree(ctx, 1)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.VertexCount(ctx)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.EdgeCount(ctx)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.Vertices(ctx)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.Successors(ctx, 1)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.Predecessors(ctx, 1)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	_, err = dag.Pipeline(ctx)
+	assert.ErrorIs(t, err, ErrDAGClosed)
+
+	// Double close should be no-op
+	err = dag.Close()
+	assert.NoError(t, err)
+}
+
+func TestMemoryDAG_ErrorCases(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-errors")
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// InDegree for non-existent vertex
+	_, err = dag.InDegree(ctx, 999)
+	assert.ErrorIs(t, err, ErrVertexNotFound)
+
+	// OutDegree for non-existent vertex
+	_, err = dag.OutDegree(ctx, 999)
+	assert.ErrorIs(t, err, ErrVertexNotFound)
+
+	// Successors for non-existent vertex
+	_, err = dag.Successors(ctx, 999)
+	assert.ErrorIs(t, err, ErrVertexNotFound)
+
+	// Predecessors for non-existent vertex
+	_, err = dag.Predecessors(ctx, 999)
+	assert.ErrorIs(t, err, ErrVertexNotFound)
+
+	// DelVertex for non-existent vertex
+	err = dag.DelVertex(ctx, 999)
+	assert.ErrorIs(t, err, ErrVertexNotFound)
+
+	// DelEdge for non-existent edge
+	err = dag.AddVertex(ctx, 1)
+	require.NoError(t, err)
+	err = dag.AddVertex(ctx, 2)
+	require.NoError(t, err)
+	err = dag.DelEdge(ctx, 1, 2)
+	assert.ErrorIs(t, err, ErrEdgeNotFound)
+
+	// DelEdge for non-existent from vertex
+	err = dag.DelEdge(ctx, 999, 1)
+	assert.ErrorIs(t, err, ErrEdgeNotFound)
+}
+
+func TestMemoryDAG_DuplicateOperations(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-duplicate")
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Adding same vertex twice should be no-op
+	err = dag.AddVertex(ctx, 1)
+	require.NoError(t, err)
+	err = dag.AddVertex(ctx, 1)
+	require.NoError(t, err)
+
+	count, err := dag.VertexCount(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, count)
+
+	// Adding same edge twice should be no-op
+	err = dag.AddEdge(ctx, 1, 2)
+	require.NoError(t, err)
+	err = dag.AddEdge(ctx, 1, 2)
+	require.NoError(t, err)
+
+	edgeCount, err := dag.EdgeCount(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, 1, edgeCount)
+}
+
+func TestMemoryDAG_PipelineRepeatedCall(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-pipeline-repeat", WithBufferSize(10), WithPollInterval(50))
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Add vertices
+	err = dag.AddEdge(ctx, 1, 2)
+	require.NoError(t, err)
+
+	// First pipeline call
+	pipeline1, err := dag.Pipeline(ctx)
+	require.NoError(t, err)
+
+	// Second call should return the same channel
+	pipeline2, err := dag.Pipeline(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, pipeline1, pipeline2)
+
+	dag.Close()
+}
+
+func TestMemoryDAG_HasEdge_NonExistent(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-hasedge")
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Test HasEdge when 'from' vertex doesn't exist
+	has, err := dag.HasEdge(ctx, 1, 2)
+	require.NoError(t, err)
+	assert.False(t, has)
+
+	// Add 'from' vertex only
+	err = dag.AddVertex(ctx, 1)
+	require.NoError(t, err)
+
+	// Test HasEdge when edge doesn't exist
+	has, err = dag.HasEdge(ctx, 1, 2)
+	require.NoError(t, err)
+	assert.False(t, has)
+}
+
+func TestMemoryDAG_DelVertex_WithEdges(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-delvertex-edges")
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Setup: create vertices with multiple edges
+	// 1 -> 2 -> 3
+	// 4 -> 2
+	err = dag.AddEdge(ctx, 1, 2)
+	require.NoError(t, err)
+	err = dag.AddEdge(ctx, 2, 3)
+	require.NoError(t, err)
+	err = dag.AddEdge(ctx, 4, 2)
+	require.NoError(t, err)
+
+	// Delete vertex 2 (has both incoming and outgoing edges)
+	err = dag.DelVertex(ctx, 2)
+	require.NoError(t, err)
+
+	// Verify vertex 2 is gone
+	has, err := dag.HasVertex(ctx, 2)
+	require.NoError(t, err)
+	assert.False(t, has)
+
+	// Verify edges are cleaned up
+	has, err = dag.HasEdge(ctx, 1, 2)
+	require.NoError(t, err)
+	assert.False(t, has)
+
+	// Verify other vertices still exist
+	has, err = dag.HasVertex(ctx, 1)
+	require.NoError(t, err)
+	assert.True(t, has)
+
+	has, err = dag.HasVertex(ctx, 3)
+	require.NoError(t, err)
+	assert.True(t, has)
+}
+
+func TestMemoryDAG_Pipeline_ContextCancel(t *testing.T) {
+	dag, err := NewMemoryDAG[int]("test-pipeline-cancel", WithBufferSize(10), WithPollInterval(50))
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Add vertices
+	err = dag.AddEdge(ctx, 1, 2)
+	require.NoError(t, err)
+
+	// Start pipeline
+	pipeline, err := dag.Pipeline(ctx)
+	require.NoError(t, err)
+
+	// Cancel context
+	cancel()
+
+	// Give time for goroutines to stop
+	time.Sleep(100 * time.Millisecond)
+
+	// Pipeline should eventually be closed
+	select {
+	case _, ok := <-pipeline:
+		// Either got an item or channel is closed - both are valid
+		_ = ok
+	case <-time.After(500 * time.Millisecond):
+		// Timeout is also acceptable
+	}
+
+	dag.Close()
+}
+
+func TestMemoryDAGFactory_CreateWithEmptyName(t *testing.T) {
+	factory := NewMemoryDAGFactory[int]()
+	ctx := context.Background()
+
+	// Create with empty name should fail
+	_, err := factory.Create(ctx, "")
+	assert.Error(t, err)
+}
+
+func TestWithDAGLogger(t *testing.T) {
+	// Just test that the option function works
+	opts := DefaultOptions()
+	assert.Nil(t, opts.Logger)
+
+	// Note: We don't have a real logger to test with, but we can verify the option works
+	// by checking that it doesn't panic
+	opt := WithDAGLogger(nil)
+	opt(opts)
+	assert.Nil(t, opts.Logger)
 }

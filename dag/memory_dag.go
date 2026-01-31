@@ -2,6 +2,7 @@ package dag
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -23,14 +24,19 @@ type MemoryDAG[T comparable] struct {
 	// inQueue tracks which vertices are in the queue
 	inQueue map[T]bool
 
-	mu       sync.Mutex
-	closed   bool
-	closeCh  chan struct{}
-	pipeline chan T
+	mu              sync.Mutex
+	closed          bool
+	closeCh         chan struct{}
+	pipeline        chan T
+	pipelineRunning bool
 }
 
 // NewMemoryDAG creates a new in-memory DAG.
-func NewMemoryDAG[T comparable](name string, opts ...Option) *MemoryDAG[T] {
+func NewMemoryDAG[T comparable](name string, opts ...Option) (*MemoryDAG[T], error) {
+	if name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+
 	options := DefaultOptions()
 	for _, opt := range opts {
 		opt(options)
@@ -43,7 +49,7 @@ func NewMemoryDAG[T comparable](name string, opts ...Option) *MemoryDAG[T] {
 		inDegree: make(map[T]int),
 		inQueue:  make(map[T]bool),
 		closeCh:  make(chan struct{}),
-	}
+	}, nil
 }
 
 func (d *MemoryDAG[T]) AddVertex(ctx context.Context, vertex T) error {
@@ -153,9 +159,7 @@ func (d *MemoryDAG[T]) DelVertex(ctx context.Context, vertex T) error {
 
 	// Remove all incoming edges
 	for v := range d.graph {
-		if _, exists := d.graph[v][vertex]; exists {
-			delete(d.graph[v], vertex)
-		}
+		delete(d.graph[v], vertex)
 	}
 
 	// Remove vertex
@@ -349,11 +353,15 @@ func (d *MemoryDAG[T]) Pipeline(ctx context.Context) (<-chan T, error) {
 		return nil, ErrDAGClosed
 	}
 
-	if d.pipeline != nil {
+	// If pipeline is already running, return existing channel
+	if d.pipelineRunning && d.pipeline != nil {
 		return d.pipeline, nil
 	}
 
+	// Reset pipeline state for new run
+	d.closeCh = make(chan struct{})
 	d.pipeline = make(chan T, d.opts.BufferSize)
+	d.pipelineRunning = true
 
 	// Goroutine to find vertices with in-degree 0 and add to queue
 	go d.pollReadyVertices(ctx)
@@ -388,7 +396,12 @@ func (d *MemoryDAG[T]) pollReadyVertices(ctx context.Context) {
 }
 
 func (d *MemoryDAG[T]) processQueue(ctx context.Context) {
-	defer close(d.pipeline)
+	defer func() {
+		close(d.pipeline)
+		d.mu.Lock()
+		d.pipelineRunning = false
+		d.mu.Unlock()
+	}()
 
 	for {
 		select {
@@ -472,8 +485,38 @@ func (f *MemoryDAGFactory[T]) Create(ctx context.Context, name string, opts ...O
 		return dag, nil
 	}
 
-	dag := NewMemoryDAG[T](name, opts...)
+	dag, err := NewMemoryDAG[T](name, opts...)
+	if err != nil {
+		return nil, err
+	}
 	f.dags[name] = dag
 
 	return dag, nil
+}
+
+// Remove removes a DAG from the factory and closes it.
+func (f *MemoryDAGFactory[T]) Remove(name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	dag, exists := f.dags[name]
+	if !exists {
+		return nil
+	}
+
+	delete(f.dags, name)
+	return dag.Close()
+}
+
+// Close closes all DAGs managed by the factory.
+func (f *MemoryDAGFactory[T]) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for name, dag := range f.dags {
+		dag.Close()
+		delete(f.dags, name)
+	}
+
+	return nil
 }
