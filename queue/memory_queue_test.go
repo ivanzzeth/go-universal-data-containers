@@ -63,6 +63,49 @@ func TestMemoryQueueBlockingWithContext(t *testing.T) {
 	SpecTestQueueBlockingWithContext(t, f)
 }
 
+// TestMemoryQueueGracefulCloseNoWaitGroupPanic tests that GracefulClose does not cause
+// "sync: WaitGroup is reused before previous Wait has returned" panic.
+// This test reproduces a race condition where:
+// 1. GracefulClose() sets closing=true and calls Wait()
+// 2. run() goroutine checks ExitChannel() (not closed yet) and continues
+// 3. run() calls AddInflight() while Wait() is already running
+// This violates WaitGroup usage rules and causes panic.
+func TestMemoryQueueGracefulCloseNoWaitGroupPanic(t *testing.T) {
+	// Run multiple iterations to increase chance of hitting the race condition
+	for i := 0; i < 100; i++ {
+		q, err := NewMemoryQueue("graceful-close-test", NewJsonMessage([]byte{}), queueOptions)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx := context.Background()
+
+		// Subscribe to process messages
+		processed := make(chan struct{}, 1000)
+		q.Subscribe(ctx, func(ctx context.Context, msg Message[[]byte]) error {
+			// Simulate some processing time to increase race condition window
+			time.Sleep(time.Microsecond)
+			select {
+			case processed <- struct{}{}:
+			default:
+			}
+			return nil
+		})
+
+		// Enqueue multiple messages rapidly
+		for j := 0; j < 10; j++ {
+			_ = q.Enqueue(ctx, []byte("test-data"))
+		}
+
+		// Give some time for processing to start
+		time.Sleep(time.Millisecond)
+
+		// Close the queue - this should NOT panic
+		// The bug: run() might call AddInflight() after GracefulClose() starts Wait()
+		q.Close()
+	}
+}
+
 // TestMemoryQueueBEnqueueReturnAfterSuccess tests that BEnqueue returns after successful enqueue
 // This test reproduces a bug where BEnqueue was missing "return nil" after successful Enqueue,
 // causing it to loop infinitely and enqueue the same data multiple times.

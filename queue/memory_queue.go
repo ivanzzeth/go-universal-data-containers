@@ -231,11 +231,19 @@ func (q *MemoryQueue[T]) run() {
 	ctx := context.Background()
 
 	for {
-		// Check if queue is closed
+		// Check if queue is closed or closing.
+		// IMPORTANT: Must check IsClosing() to prevent WaitGroup race condition.
+		// When GracefulClose() is called, it sets closing=true then calls Wait().
+		// If we don't check IsClosing() here, we might call AddInflight() while
+		// Wait() is already running, causing "WaitGroup is reused before previous
+		// Wait has returned" panic.
 		select {
 		case <-q.ExitChannel():
 			return
 		default:
+			if q.IsClosing() {
+				return
+			}
 		}
 
 		// Wait for callbacks to be registered
@@ -282,7 +290,11 @@ func (q *MemoryQueue[T]) run() {
 			continue
 		}
 
-		q.AddInflight()
+		// AddInflight checks IsClosing() atomically to prevent race condition
+		// with GracefulClose().Wait(). If it returns false, the queue is closing.
+		if !q.AddInflight() {
+			return
+		}
 		q.TriggerCallbacks(ctx, msg)
 		q.DoneInflight()
 	}

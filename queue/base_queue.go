@@ -39,6 +39,7 @@ type BaseQueue[T any] struct {
 	// Graceful shutdown support
 	closing    atomic.Bool
 	inflightWg sync.WaitGroup
+	closingMu  sync.RWMutex // Protects the closing sequence to prevent WaitGroup race
 }
 
 func NewBaseQueue[T any](name string, defaultMsg Message[T], options ...Option) (*BaseQueue[T], error) {
@@ -78,7 +79,11 @@ func (q *BaseQueue[T]) Close() {
 // 2. Waits for all in-flight messages to be processed
 // 3. Closes the exit channel
 func (q *BaseQueue[T]) GracefulClose() {
+	// Acquire write lock to ensure no AddInflight() is in progress
+	q.closingMu.Lock()
 	q.closing.Store(true)
+	q.closingMu.Unlock()
+
 	q.inflightWg.Wait()
 	q.Close()
 }
@@ -88,9 +93,20 @@ func (q *BaseQueue[T]) IsClosing() bool {
 	return q.closing.Load()
 }
 
-// AddInflight increments the in-flight counter
-func (q *BaseQueue[T]) AddInflight() {
+// AddInflight increments the in-flight counter.
+// Returns false if the queue is closing (to prevent WaitGroup race condition).
+// Caller must check the return value and skip processing if false.
+func (q *BaseQueue[T]) AddInflight() bool {
+	// Use read lock to prevent race with GracefulClose's closing sequence
+	q.closingMu.RLock()
+	defer q.closingMu.RUnlock()
+
+	// Check closing state before Add to prevent race with Wait()
+	if q.closing.Load() {
+		return false
+	}
 	q.inflightWg.Add(1)
+	return true
 }
 
 // DoneInflight decrements the in-flight counter
