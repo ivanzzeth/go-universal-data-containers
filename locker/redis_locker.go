@@ -78,25 +78,30 @@ func (l *RedSyncMutexWrapper) convertError(err error) error {
 }
 
 type RedisLockerGenerator struct {
-	redisPool redsyncredis.Pool
-	rsync     *redsync.Redsync
-	table     sync.Map
+	redisPool    redsyncredis.Pool
+	rsync        *redsync.Redsync
+	table        sync.Map
+	mutexOptions []redsync.Option
 }
 
-func NewRedisLockerGenerator(redisPool redsyncredis.Pool) *RedisLockerGenerator {
+// NewRedisLockerGenerator creates a Redis-backed locker generator.
+// Optional redsync.Option values are applied to every mutex created by this generator.
+// For example:
+//
+//	locker.NewRedisLockerGenerator(pool,
+//	    redsync.WithTries(3),
+//	    redsync.WithRetryDelay(50*time.Millisecond),
+//	    redsync.WithExpiry(2*time.Second),
+//	)
+func NewRedisLockerGenerator(redisPool redsyncredis.Pool, opts ...redsync.Option) *RedisLockerGenerator {
 	return &RedisLockerGenerator{
-		redisPool: redisPool,
-		rsync:     redsync.New(redisPool),
+		redisPool:    redisPool,
+		rsync:        redsync.New(redisPool),
+		mutexOptions: opts,
 	}
 }
 
-type RedisMutextOption struct{}
-
-func (o RedisMutextOption) Apply(m *redsync.Mutex) {
-	// TODO:
-}
-
 func (g *RedisLockerGenerator) CreateSyncLocker(name string) (SyncLocker, error) {
-	mv, _ := g.table.LoadOrStore(name, NewRedSyncMutexWrapper(name, g.rsync.NewMutex(name, &RedisMutextOption{})))
+	mv, _ := g.table.LoadOrStore(name, NewRedSyncMutexWrapper(name, g.rsync.NewMutex(name, g.mutexOptions...)))
 	return mv.(*RedSyncMutexWrapper), nil
 }
